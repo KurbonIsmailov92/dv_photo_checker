@@ -22,6 +22,8 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python app (FULL, not partial libs)
@@ -35,8 +37,8 @@ WORKDIR /app
 EXPOSE 8080
 EXPOSE 8000
 
-# Install runtime deps inside container (important fix)
-RUN pip install --no-cache-dir fastapi uvicorn
+# Install full CV runtime deps (cv2, numpy, etc.)
+RUN pip install --no-cache-dir -r /app/cv-service-python/requirements.txt
 
 # Start both services
-CMD ["sh", "-c", "uvicorn cv-service-python.main:app --host 0.0.0.0 --port 8000 & ./main"]
+CMD ["sh", "-c", "cd /app/cv-service-python && uvicorn main:app --host 0.0.0.0 --port 8000 & cd /app && ./main"]

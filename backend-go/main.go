@@ -27,8 +27,8 @@ const (
 func main() {
 	filePath := flag.String("validate", "", "Validate an image file path via the CV microservice")
 	autoFix := flag.Bool("auto-fix", false, "Auto-fix the image if validation fails")
-	serviceURL := flag.String("cv-service", defaultCVServiceURL, "CV microservice base URL")
-	port := flag.String("port", "8080", "HTTP port for the REST service")
+	serviceURL := flag.String("cv-service", getEnvOrDefault("CV_SERVICE_URL", defaultCVServiceURL), "CV microservice base URL")
+	port := flag.String("port", getEnvOrDefault("PORT", "8080"), "HTTP port for the REST service")
 	flag.Parse()
 
 	if *filePath != "" {
@@ -54,6 +54,14 @@ func main() {
 
 	log.Printf("Backend running on http://localhost:%s", *port)
 	log.Fatal(router.Run(fmt.Sprintf(":%s", *port)))
+}
+
+func getEnvOrDefault(name, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func healthHandler(c *gin.Context) {
