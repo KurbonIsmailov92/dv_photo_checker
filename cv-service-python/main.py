@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import cv2
@@ -124,6 +125,27 @@ async def validate_image(
         detail=detail,
         fixed_image=fixed_image
     )
+
+@app.post("/auto-fix")
+async def auto_fix_image_endpoint(image: UploadFile = File(...)):
+    if not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    contents = await image.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Invalid image file")
+
+    fixed_img = auto_fix_image(img, {})
+    if fixed_img is None:
+        raise HTTPException(status_code=422, detail="Unable to auto-fix the provided image")
+
+    success, buffer = cv2.imencode('.jpg', fixed_img)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to encode fixed image")
+
+    return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
 @app.get("/health")
 async def health():

@@ -77,6 +77,26 @@ Response:
 go run main.go -validate photo.jpg -auto-fix
 ```
 
+## Telegram Bot
+
+Create `.env` in the project root and set your bot token:
+```env
+BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+BACKEND_URL=http://localhost:8080
+```
+
+Then start the bot:
+```bash
+cd telegram-bot
+go mod tidy
+go run .
+```
+
+The bot supports:
+- photo validation
+- failed photo buttons: Fix Photo, Why Failed
+- three free checks per user
+
 ## Validation Rules
 
 - **Resolution**: Exactly 600x600 px

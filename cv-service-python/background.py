@@ -1,7 +1,11 @@
 import cv2
 import numpy as np
 import logging
-from rembg import remove
+
+try:
+    from rembg import remove
+except ImportError:
+    remove = None
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +16,11 @@ def validate_background(img):
 
     h, w = img.shape[:2]
 
-    # Use rembg for background removal
+    # Use rembg for background removal when available.
     try:
+        if remove is None:
+            raise RuntimeError("rembg is not installed")
+
         # Remove background
         img_no_bg = remove(img)
         # Convert to grayscale for analysis
