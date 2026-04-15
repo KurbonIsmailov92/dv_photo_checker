@@ -1,16 +1,24 @@
 version: '3.8'
 
 services:
-  backend:
-    build: ./backend-go
-    ports:
-      - "8080:8080"
-    depends_on:
-      - cv-service
-    environment:
-      - CV_SERVICE_URL=http://cv-service:8000/validate
-
   cv-service:
     build: ./cv-service-python
     ports:
       - "8000:8000"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend-go
+    ports:
+      - "8080:8080"
+    restart: always
+    depends_on:
+      cv-service:
+        condition: service_healthy
+    environment:
+      CV_SERVICE_URL: "http://cv-service:8000"
