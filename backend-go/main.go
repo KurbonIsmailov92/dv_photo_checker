@@ -9,6 +9,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ import (
 
 const (
 	defaultCVServiceURL = "http://localhost:8000"
-	requestTimeout      = 5 * time.Second
+	requestTimeout      = 10 * time.Second
 )
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 	flag.Parse()
 
 	if *filePath != "" {
-		response, err := validateLocalFile(*filePath, *serviceURL, *autoFix)
+		response, err := validateLocalFile(*filePath, *serviceURL)
 		if err != nil {
 			log.Fatalf("validation failed: %v", err)
 		}
@@ -41,19 +42,26 @@ func main() {
 	}
 
 	router := gin.Default()
+
 	router.GET("/health", healthHandler)
+
 	router.POST("/validate", func(c *gin.Context) {
 		uploadHandler(c, *serviceURL, "/validate")
 	})
+
 	router.POST("/auto-fix", func(c *gin.Context) {
 		autoFixHandler(c, *serviceURL, "/auto-fix")
 	})
+
 	router.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"service": "DV Photo Validator Pro Backend", "version": "2.0"})
+		c.JSON(http.StatusOK, gin.H{
+			"service": "DV Photo Validator Pro Backend",
+			"version": "2.1",
+		})
 	})
 
-	log.Printf("Backend running on http://localhost:%s", *port)
-	log.Fatal(router.Run(fmt.Sprintf(":%s", *port)))
+	log.Printf("Backend running on :%s", *port)
+	log.Fatal(router.Run(":" + *port))
 }
 
 func getEnvOrDefault(name, fallback string) string {
@@ -82,25 +90,20 @@ func uploadHandler(c *gin.Context, serviceBaseURL string, path string) {
 	}
 	defer opened.Close()
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("image", filepath.Base(file.Filename))
+	body, contentType, err := buildMultipartBody(file, opened)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create multipart body"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if _, err := io.Copy(part, opened); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy file"})
-		return
-	}
-	writer.Close()
 
 	endpointURL := joinEndpoint(serviceBaseURL, path)
-	response, err := sendToCVService(endpointURL, writer.FormDataContentType(), body)
+
+	response, err := sendToCVService(endpointURL, contentType, body)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, response)
 }
 
@@ -118,30 +121,24 @@ func autoFixHandler(c *gin.Context, serviceBaseURL string, path string) {
 	}
 	defer opened.Close()
 
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("image", filepath.Base(file.Filename))
+	body, contentType, err := buildMultipartBody(file, opened)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create multipart body"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if _, err := io.Copy(part, opened); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy file"})
-		return
-	}
-	writer.Close()
 
 	endpointURL := joinEndpoint(serviceBaseURL, path)
-	fixedBytes, contentType, err := sendToCVServiceRaw(endpointURL, writer.FormDataContentType(), body)
+
+	fixedBytes, respContentType, err := sendToCVServiceRaw(endpointURL, contentType, body)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Data(http.StatusOK, contentType, fixedBytes)
+	c.Data(http.StatusOK, respContentType, fixedBytes)
 }
 
-func validateLocalFile(filePath, serviceBaseURL string, autoFix bool) (*models.ValidationResponse, error) {
+func validateLocalFile(filePath, serviceBaseURL string) (*models.ValidationResponse, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -150,31 +147,68 @@ func validateLocalFile(filePath, serviceBaseURL string, autoFix bool) (*models.V
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("image", filepath.Base(filePath))
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, filepath.Base(filePath)))
+	h.Set("Content-Type", "image/jpeg")
+
+	part, err := writer.CreatePart(h)
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := io.Copy(part, file); err != nil {
 		return nil, err
 	}
+
 	writer.Close()
 
 	endpointURL := joinEndpoint(serviceBaseURL, "/validate")
 	return sendToCVService(endpointURL, writer.FormDataContentType(), body)
 }
 
+func buildMultipartBody(file *multipart.FileHeader, opened multipart.File) (*bytes.Buffer, string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, filepath.Base(file.Filename)))
+
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	h.Set("Content-Type", contentType)
+
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if _, err := io.Copy(part, opened); err != nil {
+		return nil, "", err
+	}
+
+	writer.Close()
+	return body, writer.FormDataContentType(), nil
+}
+
 func sendToCVService(serviceURL string, contentType string, body *bytes.Buffer) (*models.ValidationResponse, error) {
 	client := http.Client{Timeout: requestTimeout}
-	resp, err := client.Post(serviceURL, contentType, body)
+
+	req, err := http.NewRequest("POST", serviceURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("CV microservice request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	payload, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
+	payload, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("CV microservice returned %d: %s", resp.StatusCode, string(payload))
@@ -184,29 +218,37 @@ func sendToCVService(serviceURL string, contentType string, body *bytes.Buffer) 
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return nil, err
 	}
+
 	return &result, nil
 }
 
 func sendToCVServiceRaw(serviceURL string, contentType string, body *bytes.Buffer) ([]byte, string, error) {
 	client := http.Client{Timeout: requestTimeout}
-	resp, err := client.Post(serviceURL, contentType, body)
+
+	req, err := http.NewRequest("POST", serviceURL, body)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Content-Type", contentType)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("CV microservice request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	payload, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", err
-	}
+	payload, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("CV microservice returned %d: %s", resp.StatusCode, string(payload))
 	}
-	contentType = resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+
+	respType := resp.Header.Get("Content-Type")
+	if respType == "" {
+		respType = "application/octet-stream"
 	}
-	return payload, contentType, nil
+
+	return payload, respType, nil
 }
 
 func joinEndpoint(baseURL, path string) string {
@@ -214,9 +256,6 @@ func joinEndpoint(baseURL, path string) string {
 }
 
 func printJSON(response *models.ValidationResponse) {
-	output, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		log.Fatalf("failed to format JSON: %v", err)
-	}
+	output, _ := json.MarshalIndent(response, "", "  ")
 	fmt.Println(string(output))
 }
