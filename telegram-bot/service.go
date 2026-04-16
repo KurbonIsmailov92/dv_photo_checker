@@ -18,7 +18,7 @@ import (
 
 type ValidationResponse struct {
 	Valid           bool           `json:"valid"`
-	Score           int            `json:"score"`
+	Score           float64        `json:"score"`
 	PassProbability float64        `json:"pass_probability"`
 	Issues          []string       `json:"issues"`
 	Metrics         map[string]any `json:"metrics"`

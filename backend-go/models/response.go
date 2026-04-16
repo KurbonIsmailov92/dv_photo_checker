@@ -8,9 +8,11 @@ type FaceAngle struct {
 
 type ValidationResponse struct {
 	Valid           bool                   `json:"valid"`
-	Score           int                    `json:"score"`
+	Score           float64                `json:"score"`
 	PassProbability float64                `json:"pass_probability"`
+	Features        map[string]float64     `json:"features"`
 	Issues          []string               `json:"issues"`
+	DecisionReason  string                 `json:"decision_reason"`
 	Metrics         map[string]interface{} `json:"metrics"`
 	Detail          map[string]interface{} `json:"detail,omitempty"`
 }

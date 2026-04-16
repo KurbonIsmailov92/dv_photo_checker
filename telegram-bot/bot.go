@@ -14,7 +14,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const backendURL = "https://dv-photo-checker.onrender.com"
+var backendURL = getEnvOrDefault("BACKEND_URL", "http://localhost:8080")
 
 func main() {
 	token := os.Getenv("BOT_TOKEN")
@@ -159,7 +159,7 @@ func sendToAPI(fileBytes []byte) (map[string]interface{}, error) {
 	respBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("backend error: %s", string(respBytes))
+		return nil, fmt.Errorf("backend error [%d]: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var result map[string]interface{}
@@ -201,6 +201,14 @@ func sendResult(bot *tgbotapi.BotAPI, chatID int64, result map[string]interface{
 // =====================
 // SAFE SEND
 // =====================
+func getEnvOrDefault(name, fallback string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func send(bot *tgbotapi.BotAPI, chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	bot.Send(msg)

@@ -85,7 +85,7 @@ func handlePhotoMessage(bot *tgbotapi.BotAPI, service *PhotoService, message *tg
 	service.IncrementChecks(userID)
 
 	if validation.Valid {
-		msgText := fmt.Sprintf("✅ Photo PASSED\n\nScore: %d\nProbability: %.2f\n\n🎉 Your photo meets DV Lottery requirements!", validation.Score, validation.PassProbability)
+		msgText := fmt.Sprintf("✅ Photo PASSED\n\nScore: %.2f\nProbability: %.2f\n\n🎉 Your photo meets DV Lottery requirements!", validation.Score, validation.PassProbability)
 		msg := tgbotapi.NewMessage(chatID, msgText)
 		bot.Send(msg)
 		return
@@ -158,7 +158,7 @@ func formatFailureMessage(response *ValidationResponse) string {
 	for _, issue := range response.Issues {
 		builder.WriteString(fmt.Sprintf("• %s\n", issue))
 	}
-	builder.WriteString(fmt.Sprintf("\nScore: %d\nProbability: %.2f", response.Score, response.PassProbability))
+	builder.WriteString(fmt.Sprintf("\nScore: %.2f\nProbability: %.2f", response.Score, response.PassProbability))
 	return builder.String()
 }
 
