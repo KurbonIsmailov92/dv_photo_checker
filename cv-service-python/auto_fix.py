@@ -4,12 +4,8 @@ from typing import Tuple
 
 try:
     import mediapipe as mp
-    MP_FACE_MESH = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.4,
-    )
+    # Temporarily disabled due to API changes in mediapipe 0.10.x
+    MP_FACE_MESH = None
 except ImportError:
     MP_FACE_MESH = None
 

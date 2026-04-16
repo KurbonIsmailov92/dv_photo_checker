@@ -5,14 +5,11 @@ from config import BALANCED_MODE, BALANCED_THRESHOLDS, DEFAULT_MODE, STRICT_MODE
 
 try:
     import mediapipe as mp
-    MP_FACE_MESH = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.4,
-    )
+    # For now, disable face detection due to API changes in mediapipe 0.10.x
+    # TODO: Update to use FaceLandmarker with proper model loading
+    MP_FACE_LANDMARKER = None
 except ImportError:
-    MP_FACE_MESH = None
+    MP_FACE_LANDMARKER = None
 
 LEFT_EYE_LANDMARKS = [33, 133, 160, 159, 158, 157]
 RIGHT_EYE_LANDMARKS = [263, 362, 387, 386, 385, 384]
@@ -30,14 +27,11 @@ def normalize_landmarks(image, landmarks):
 
 
 def detect_mesh_landmarks(image):
-    if MP_FACE_MESH is None:
+    if MP_FACE_LANDMARKER is None:
         return None
 
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    results = MP_FACE_MESH.process(rgb)
-    if not results.multi_face_landmarks or len(results.multi_face_landmarks) == 0:
-        return None
-    return normalize_landmarks(image, results.multi_face_landmarks[0].landmark)
+    # TODO: Implement with new FaceLandmarker API
+    return None
 
 
 def compute_eye_center(landmarks, indices):

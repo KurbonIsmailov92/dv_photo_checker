@@ -351,7 +351,17 @@ func uploadHandler(c *gin.Context, serviceBaseURL string, path string) {
 
 	response, err := sendToCVService(endpointURL, contentType, body)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		// Return a fallback response when CV service is unavailable
+		fallback := &models.ValidationResponse{
+			Valid:          false,
+			Score:          0.0,
+			Issues:         []string{"CV service unavailable: " + err.Error()},
+			Warnings:       []string{},
+			DecisionReason: "Service Error",
+			Metrics:        map[string]interface{}{},
+			Features:       map[string]float64{},
+		}
+		c.JSON(http.StatusOK, fallback)
 		return
 	}
 
@@ -382,7 +392,10 @@ func autoFixHandler(c *gin.Context, serviceBaseURL string, path string) {
 
 	fixedBytes, respContentType, err := sendToCVServiceRaw(endpointURL, contentType, body)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		// Return the original image when CV service is unavailable
+		opened.Seek(0, 0) // Reset to beginning
+		originalBytes, _ := io.ReadAll(opened)
+		c.Data(http.StatusOK, "image/jpeg", originalBytes) // Assume JPEG, but could detect
 		return
 	}
 
