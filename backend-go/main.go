@@ -31,6 +31,7 @@ func main() {
 	serviceURL := flag.String("cv-service", getEnvOrDefault("CV_SERVICE_URL", defaultCVServiceURL), "CV microservice base URL")
 	port := flag.String("port", getEnvOrDefault("PORT", "8080"), "HTTP port for the REST service")
 	flag.Parse()
+	_ = autoFix
 
 	if *filePath != "" {
 		response, err := validateLocalFile(*filePath, *serviceURL)
