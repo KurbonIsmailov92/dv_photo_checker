@@ -3,7 +3,7 @@
 # =============================================
 
 # === Python CV ===
-FROM python:3.11-slim AS python-builder
+FROM python:3.10-slim AS python-builder
 WORKDIR /app/cv-service-python
 COPY cv-service-python/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -18,7 +18,7 @@ COPY backend-go/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main .
 
 # === Final runtime ===
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
