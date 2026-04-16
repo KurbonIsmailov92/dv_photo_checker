@@ -1,46 +1,51 @@
-from typing import Dict, Any
-
-FEATURE_WEIGHTS = {
-    "face_score": 0.35,
-    "blur_score": 0.18,
-    "lighting_score": 0.18,
-    "background_score": 0.15,
-    "exif_score": 0.08,
-    "manipulation_score": 0.06,
-}
+from typing import Dict, List
+from config import PASS_PROBABILITY_THRESHOLD, WEIGHT_BACKGROUND, WEIGHT_BLUR, WEIGHT_FACE_GEOMETRY, WEIGHT_LIGHTING
 
 
-def aggregate_features(feature_scores: Dict[str, float]) -> Dict[str, Any]:
-    final_score = 0.0
-    normalized_scores = {}
-    for feature, weight in FEATURE_WEIGHTS.items():
-        value = float(feature_scores.get(feature, 0.0))
-        normalized_scores[feature] = round(value, 3)
-        final_score += value * weight
+def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+    return max(min(value, maximum), minimum)
 
-    final_score = max(min(final_score, 1.0), 0.0)
-    pass_probability = round(final_score, 3)
-    valid = pass_probability >= 0.92
 
-    sorted_by_score = sorted(FEATURE_WEIGHTS.keys(), key=lambda k: normalized_scores.get(k, 0.0))
-    lowest = sorted_by_score[:2]
-    insights = []
-    for name in lowest:
-        score = normalized_scores.get(name, 0.0)
-        if score < 0.92:
-            insights.append(f"{name.replace('_', ' ')} is lower than expected ({score:.2f})")
+def aggregate_feature_scores(feature_scores: Dict[str, float]) -> Dict[str, float]:
+    return {
+        "face_geometry_score": round(clamp(feature_scores.get("face_geometry_score", 0.0)), 3),
+        "background_score": round(clamp(feature_scores.get("background_score", 0.0)), 3),
+        "blur_score": round(clamp(feature_scores.get("blur_score", 0.0)), 3),
+        "lighting_score": round(clamp(feature_scores.get("lighting_score", 0.0)), 3),
+    }
 
+
+def compute_final_score(feature_scores: Dict[str, float]) -> float:
+    face_score = feature_scores.get("face_geometry_score", 0.0)
+    background_score = feature_scores.get("background_score", 0.0)
+    blur_score = feature_scores.get("blur_score", 0.0)
+    lighting_score = feature_scores.get("lighting_score", 0.0)
+
+    final_score = (
+        face_score * WEIGHT_FACE_GEOMETRY
+        + background_score * WEIGHT_BACKGROUND
+        + blur_score * WEIGHT_BLUR
+        + lighting_score * WEIGHT_LIGHTING
+    )
+    return round(clamp(final_score), 3)
+
+
+def build_decision(final_score: float, issues: List[str], warnings: List[str]) -> Dict[str, object]:
+    valid = final_score >= PASS_PROBABILITY_THRESHOLD and len(issues) == 0
     if valid:
-        decision_reason = "Probabilistic biometric validation indicates a strong pass probability."
-    elif insights:
-        decision_reason = "; ".join(insights)
+        if warnings:
+            decision_reason = "Photo passes with minor issues after crop. Warnings are shown for review."
+        else:
+            decision_reason = "Photo passes DV-style validation after crop."
     else:
-        decision_reason = "Final probability is below threshold, indicating at least one biometric signal is weak."
+        if len(issues) > 0:
+            decision_reason = "Photo did not satisfy core biometric or background checks after crop."
+        else:
+            decision_reason = "Final probability is below the pass threshold."
 
     return {
-        "final_score": round(final_score, 3),
-        "pass_probability": pass_probability,
         "valid": valid,
-        "feature_scores": normalized_scores,
+        "score": final_score,
+        "pass_probability": final_score,
         "decision_reason": decision_reason,
     }

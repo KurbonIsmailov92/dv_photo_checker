@@ -1,17 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import cv2
-import numpy as np
-from face_analysis import validate_face
+from face_analyzer import validate_face_geometry
 from background_analysis import validate_background
 from blur_analysis import validate_blur
 from lighting_analysis import validate_lighting
-from exif_analysis import analyze_exif
-from manipulation_analysis import validate_manipulation
-from scoring_engine import aggregate_features
-from auto_fix import auto_fix_image
+from auto_fix import auto_crop_to_dv_standard
+from scoring_engine import aggregate_feature_scores, compute_final_score, build_decision
+from config import DEFAULT_MODE, STRICT_MODE
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -25,24 +23,25 @@ class ValidationResponse(BaseModel):
     pass_probability: float
     features: Dict[str, float]
     issues: List[str]
+    warnings: List[str]
     decision_reason: str
     metrics: Dict[str, Any]
     detail: Dict[str, Any] = {}
 
 @app.post("/validate", response_model=ValidationResponse)
-async def validate_image(image: UploadFile = File(...)):
+async def validate_image(
+    image: UploadFile = File(...),
+    mode: str = Form(DEFAULT_MODE)
+):
     if not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
+    mode = mode if mode in {DEFAULT_MODE, STRICT_MODE} else DEFAULT_MODE
     contents = await image.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file")
-
-    issues: List[str] = []
-    metrics: Dict[str, Any] = {}
-    feature_scores: Dict[str, float] = {}
 
     height, width = img.shape[:2]
     detail = {
@@ -51,6 +50,7 @@ async def validate_image(image: UploadFile = File(...)):
         "file_size_kb": round(len(contents) / 1024.0, 2),
         "format": image.content_type,
         "filename": image.filename,
+        "mode": mode,
     }
 
     if width != 600 or height != 600:
@@ -58,50 +58,51 @@ async def validate_image(image: UploadFile = File(...)):
     if not image.filename.lower().endswith('.jpg') and not image.filename.lower().endswith('.jpeg'):
         detail["recommended_format"] = "JPEG"
 
-    exif_result = analyze_exif(contents)
-    issues.extend(exif_result["issues"])
-    metrics.update(exif_result["metrics"])
-    feature_scores.update(exif_result["feature_scores"])
+    cropped_image, crop_applied, crop_info = auto_crop_to_dv_standard(img)
+    detail["after_crop"] = crop_applied
+    detail["crop_info"] = crop_info
 
-    face_result = validate_face(img)
+    issues: List[str] = []
+    warnings: List[str] = []
+    metrics: Dict[str, Any] = {}
+    combined_feature_scores: Dict[str, float] = {}
+
+    face_result = validate_face_geometry(cropped_image, mode=mode)
     issues.extend(face_result["issues"])
+    warnings.extend(face_result["warnings"])
     metrics.update(face_result["metrics"])
-    feature_scores.update(face_result["feature_scores"])
+    combined_feature_scores.update(face_result["feature_scores"])
 
-    face_rect = None
-    if face_result["metrics"].get("face_rect"):
-        face_rect = tuple(face_result["metrics"]["face_rect"])
-
-    background_result = validate_background(img, face_rect=face_rect)
+    background_result = validate_background(cropped_image, face_rect=None, mode=mode)
     issues.extend(background_result["issues"])
+    warnings.extend(background_result["warnings"])
     metrics.update(background_result["metrics"])
-    feature_scores.update(background_result["feature_scores"])
+    combined_feature_scores.update(background_result["feature_scores"])
 
-    blur_result = validate_blur(img)
+    blur_result = validate_blur(cropped_image, mode=mode)
     issues.extend(blur_result["issues"])
+    warnings.extend(blur_result["warnings"])
     metrics.update(blur_result["metrics"])
-    feature_scores.update(blur_result["feature_scores"])
+    combined_feature_scores.update(blur_result["feature_scores"])
 
-    lighting_result = validate_lighting(img, face_rect=face_rect)
+    lighting_result = validate_lighting(cropped_image, face_rect=None, mode=mode)
     issues.extend(lighting_result["issues"])
+    warnings.extend(lighting_result["warnings"])
     metrics.update(lighting_result["metrics"])
-    feature_scores.update(lighting_result["feature_scores"])
+    combined_feature_scores.update(lighting_result["feature_scores"])
 
-    manipulation_result = validate_manipulation(img)
-    issues.extend(manipulation_result["issues"])
-    metrics.update(manipulation_result["metrics"])
-    feature_scores.update(manipulation_result["feature_scores"])
-
-    scoring = aggregate_features(feature_scores)
-    issues = list(dict.fromkeys(issues))
+    feature_scores = aggregate_feature_scores(combined_feature_scores)
+    final_score = compute_final_score(feature_scores)
+    decision = build_decision(final_score, issues, warnings)
 
     return ValidationResponse(
-        valid=scoring["valid"],
-        score=scoring["final_score"],
-        pass_probability=scoring["pass_probability"],
-        features=scoring["feature_scores"],
-        issues=issues,
-        decision_reason=scoring["decision_reason"],
+        valid=decision["valid"],
+        score=decision["score"],
+        pass_probability=decision["pass_probability"],
+        features=feature_scores,
+        issues=list(dict.fromkeys(issues)),
+        warnings=list(dict.fromkeys(warnings)),
+        decision_reason=decision["decision_reason"],
         metrics=metrics,
         detail=detail,
     )
@@ -117,9 +118,9 @@ async def auto_fix_image_endpoint(image: UploadFile = File(...)):
     if img is None:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
-    fixed_img = auto_fix_image(img, {})
+    fixed_img, _, _ = auto_crop_to_dv_standard(img)
     if fixed_img is None:
-        raise HTTPException(status_code=422, detail="Unable to auto-fix the provided image")
+        raise HTTPException(status_code=422, detail="Unable to auto-crop the provided image")
 
     success, buffer = cv2.imencode('.jpg', fixed_img)
     if not success:

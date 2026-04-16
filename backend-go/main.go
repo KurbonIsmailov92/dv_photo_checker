@@ -124,10 +124,25 @@ func main() {
 			border: 1px solid #ef4444;
 		}
 
-		img {
+		.image-frame {
+			position: relative;
 			width: 100%;
 			margin-top: 10px;
+		}
+
+		.image-frame img {
+			width: 100%;
+			display: block;
 			border-radius: 10px;
+		}
+
+		.overlay {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
 		}
 
 		.small {
@@ -157,16 +172,61 @@ func main() {
 <script>
 
 let lastFile = null;
+let lastResponse = null;
 
 function showPreview(file) {
 	let reader = new FileReader();
 
 	reader.onload = function(e) {
 		document.getElementById("preview").innerHTML =
-			'<img src="' + e.target.result + '"/>';
+			'<div class="image-frame">' +
+			'<img id="previewImage" src="' + e.target.result + '"/>' +
+			'<svg id="previewOverlay" class="overlay"></svg>' +
+			'</div>';
+		lastResponse = null;
 	};
 
 	reader.readAsDataURL(file);
+}
+
+function drawOverlay(metrics) {
+	const img = document.getElementById("previewImage");
+	const overlay = document.getElementById("previewOverlay");
+	if (!img || !overlay || !metrics) return;
+
+	overlay.innerHTML = "";
+	overlay.setAttribute("viewBox", "0 0 600 600");
+	const createLine = (y, label, color) => {
+		const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line.setAttribute("x1", 0);
+		line.setAttribute("y1", y);
+		line.setAttribute("x2", 600);
+		line.setAttribute("y2", y);
+		line.setAttribute("stroke", color);
+		line.setAttribute("stroke-width", 4);
+		line.setAttribute("stroke-dasharray", "10 8");
+		overlay.appendChild(line);
+
+		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		text.setAttribute("x", 14);
+		text.setAttribute("y", y - 8);
+		text.setAttribute("fill", color);
+		text.setAttribute("font-size", "22");
+		text.setAttribute("font-family", "Arial, sans-serif");
+		text.setAttribute("font-weight", "bold");
+		text.textContent = label;
+		overlay.appendChild(text);
+	};
+
+	if (metrics.face_top_y !== undefined) {
+		createLine(metrics.face_top_y, "Макушка", "#38bdf8");
+	}
+	if (metrics.face_chin_y !== undefined) {
+		createLine(metrics.face_chin_y, "Подбородок", "#f59e0b");
+	}
+	if (metrics.eye_center_y !== undefined) {
+		createLine(metrics.eye_center_y, "Глаза", "#34d399");
+	}
 }
 
 async function upload() {
@@ -174,7 +234,6 @@ async function upload() {
 	if (!file) return alert("Выбери фото");
 
 	lastFile = file;
-
 	showPreview(file);
 
 	let form = new FormData();
@@ -186,8 +245,9 @@ async function upload() {
 	});
 
 	let data = await res.json();
-
+	lastResponse = data;
 	renderResult(data);
+	drawOverlay(data.metrics);
 }
 
 async function autoFix() {
@@ -202,11 +262,12 @@ async function autoFix() {
 	});
 
 	let blob = await res.blob();
-
 	let url = URL.createObjectURL(blob);
-
 	document.getElementById("preview").innerHTML =
-		'<img src="' + url + '"/>';
+		'<div class="image-frame">' +
+		'<img id="previewImage" src="' + url + '"/>' +
+		'<svg id="previewOverlay" class="overlay"></svg>' +
+		'</div>';
 
 	document.getElementById("result").innerHTML =
 		"🛠 Фото автоматически исправлено";
@@ -215,22 +276,23 @@ async function autoFix() {
 
 function renderResult(data) {
 	let box = document.getElementById("result");
-
 	let ok = data.valid;
-
 	box.className = "result " + (ok ? "pass" : "fail");
 
 	let text = ok ? "✅ PASS\n\n" : "❌ FAIL\n\n";
-
 	text += "Score: " + data.score + "\n\n";
 
-	if (data.issues) {
+	if (data.issues && data.issues.length) {
 		text += "Issues:\n";
 		data.issues.forEach(i => text += "- " + i + "\n");
 	}
 
-	text += "\n💡 How to fix:\n";
+	if (data.warnings && data.warnings.length) {
+		text += "\nWarnings:\n";
+		data.warnings.forEach(i => text += "- " + i + "\n");
+	}
 
+	text += "\n💡 How to fix:\n";
 	if (!ok) {
 		text += "- Lower your head position\n";
 		text += "- Use natural daylight\n";

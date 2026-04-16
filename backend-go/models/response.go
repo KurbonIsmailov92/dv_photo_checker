@@ -12,6 +12,7 @@ type ValidationResponse struct {
 	PassProbability float64                `json:"pass_probability"`
 	Features        map[string]float64     `json:"features"`
 	Issues          []string               `json:"issues"`
+	Warnings        []string               `json:"warnings"`
 	DecisionReason  string                 `json:"decision_reason"`
 	Metrics         map[string]interface{} `json:"metrics"`
 	Detail          map[string]interface{} `json:"detail,omitempty"`
