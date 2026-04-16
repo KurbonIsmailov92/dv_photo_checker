@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -26,7 +27,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("Bot authorized: %s", bot.Self.UserName)
+	bot.Debug = true // 🔥 важно для диагностики
+
+	log.Printf("Bot authorized as @%s", bot.Self.UserName)
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -34,65 +37,95 @@ func main() {
 	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
+
 		if update.Message == nil {
 			continue
 		}
 
-		// 👉 если пришло фото
+		log.Println("📩 update received")
+
+		chatID := update.Message.Chat.ID
+
+		// =====================
+		// COMMANDS
+		// =====================
+		if update.Message.IsCommand() {
+			switch update.Message.Command() {
+
+			case "start":
+				send(bot, chatID,
+					"👋 Привет!\n\n📸 Отправь фото — я проверю его по правилам DV Lottery")
+
+			case "help":
+				send(bot, chatID,
+					"📸 Просто отправь фото.\n\nЯ проверю:\n- размер\n- лицо\n- фон\n- освещение")
+
+			default:
+				send(bot, chatID, "❓ Неизвестная команда")
+			}
+
+			continue
+		}
+
+		// =====================
+		// PHOTO HANDLING
+		// =====================
 		if len(update.Message.Photo) > 0 {
 			go handlePhoto(bot, update.Message)
 			continue
 		}
 
-		// 👉 если текст
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
-			"📸 Отправь мне фото для проверки DV Lottery")
-		bot.Send(msg)
+		// fallback
+		send(bot, chatID, "📸 Отправь фото для проверки")
 	}
 }
 
-func handlePhoto(bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
-	chatID := message.Chat.ID
+// =====================
+// PHOTO HANDLER
+// =====================
+func handlePhoto(bot *tgbotapi.BotAPI, msg *tgbotapi.Message) {
 
-	// Берём самое большое фото
-	photo := message.Photo[len(message.Photo)-1]
+	chatID := msg.Chat.ID
 
-	// 1. Получаем file path
-	fileConfig := tgbotapi.FileConfig{FileID: photo.FileID}
-	file, err := bot.GetFile(fileConfig)
+	photo := msg.Photo[len(msg.Photo)-1]
+
+	file, err := bot.GetFile(tgbotapi.FileConfig{
+		FileID: photo.FileID,
+	})
 	if err != nil {
-		sendError(bot, chatID, "Не удалось получить файл")
+		send(bot, chatID, "❌ Не удалось получить файл")
 		return
 	}
 
-	// 2. Скачиваем файл
 	fileURL := file.Link(bot.Token)
 
 	resp, err := http.Get(fileURL)
 	if err != nil {
-		sendError(bot, chatID, "Ошибка скачивания файла")
+		send(bot, chatID, "❌ Ошибка скачивания фото")
 		return
 	}
 	defer resp.Body.Close()
 
 	fileBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		sendError(bot, chatID, "Ошибка чтения файла")
+		send(bot, chatID, "❌ Ошибка чтения файла")
 		return
 	}
 
-	// 3. Отправляем в backend
-	result, err := sendToBackend(fileBytes)
+	result, err := sendToAPI(fileBytes)
 	if err != nil {
-		sendError(bot, chatID, err.Error())
+		send(bot, chatID, "❌ API ошибка: "+err.Error())
 		return
 	}
 
-	// 4. Ответ пользователю
 	sendResult(bot, chatID, result)
 }
 
-func sendToBackend(fileBytes []byte) (map[string]interface{}, error) {
+// =====================
+// SEND TO BACKEND
+// =====================
+func sendToAPI(fileBytes []byte) (map[string]interface{}, error) {
+
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -115,17 +148,18 @@ func sendToBackend(fileBytes []byte) (map[string]interface{}, error) {
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 15 * time.Second}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Ошибка API: %v", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Ошибка сервера: %s", string(respBytes))
+		return nil, fmt.Errorf("backend error: %s", string(respBytes))
 	}
 
 	var result map[string]interface{}
@@ -134,32 +168,40 @@ func sendToBackend(fileBytes []byte) (map[string]interface{}, error) {
 	return result, nil
 }
 
+// =====================
+// SEND RESULT
+// =====================
 func sendResult(bot *tgbotapi.BotAPI, chatID int64, result map[string]interface{}) {
+
 	valid := result["valid"].(bool)
 	score := result["score"]
 
 	text := ""
 
 	if valid {
-		text += "✅ Фото ПОДХОДИТ для DV Lottery\n\n"
+		text += "✅ Фото ПОДХОДИТ\n\n"
 	} else {
 		text += "❌ Фото НЕ подходит\n\n"
 	}
 
 	text += fmt.Sprintf("📊 Score: %v\n", score)
 
-	if issues, ok := result["issues"].([]interface{}); ok && len(issues) > 0 {
-		text += "\n🔍 Проблемы:\n"
-		for _, issue := range issues {
-			text += "• " + issue.(string) + "\n"
+	if issues, ok := result["issues"].([]interface{}); ok {
+		if len(issues) > 0 {
+			text += "\n🔍 Проблемы:\n"
+			for _, i := range issues {
+				text += "• " + i.(string) + "\n"
+			}
 		}
 	}
 
-	msg := tgbotapi.NewMessage(chatID, text)
-	bot.Send(msg)
+	send(bot, chatID, text)
 }
 
-func sendError(bot *tgbotapi.BotAPI, chatID int64, errorMsg string) {
-	msg := tgbotapi.NewMessage(chatID, "❌ Ошибка: "+errorMsg)
+// =====================
+// SAFE SEND
+// =====================
+func send(bot *tgbotapi.BotAPI, chatID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
 	bot.Send(msg)
 }
