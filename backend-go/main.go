@@ -61,6 +61,194 @@ func main() {
 		})
 	})
 
+	router.GET("/ui", func(c *gin.Context) {
+		c.Header("Content-Type", "text/html")
+
+		var htmlPage = `
+<!DOCTYPE html>
+<html>
+<head>
+	<title>DV Photo Validator Pro</title>
+	<meta charset="UTF-8">
+	<style>
+		body {
+			font-family: Arial;
+			background: #0b1220;
+			color: white;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			height: 100vh;
+		}
+
+		.card {
+			background: #111827;
+			padding: 25px;
+			border-radius: 16px;
+			width: 450px;
+			text-align: center;
+			box-shadow: 0 0 30px rgba(0,0,0,0.5);
+		}
+
+		input {
+			margin: 15px 0;
+		}
+
+		button {
+			padding: 10px 14px;
+			margin: 5px;
+			border: none;
+			border-radius: 8px;
+			cursor: pointer;
+			font-weight: bold;
+		}
+
+		.primary { background: #38bdf8; }
+		.fix { background: #f59e0b; }
+
+		.result {
+			margin-top: 15px;
+			padding: 10px;
+			border-radius: 10px;
+			text-align: left;
+			white-space: pre-wrap;
+		}
+
+		.pass {
+			background: #14532d;
+			border: 1px solid #22c55e;
+		}
+
+		.fail {
+			background: #3f1d1d;
+			border: 1px solid #ef4444;
+		}
+
+		img {
+			width: 100%;
+			margin-top: 10px;
+			border-radius: 10px;
+		}
+
+		.small {
+			font-size: 13px;
+			opacity: 0.8;
+		}
+	</style>
+</head>
+
+<body>
+
+<div class="card">
+	<h2>📸 DV Photo Validator Pro</h2>
+
+	<input type="file" id="file" accept="image/*"/>
+
+	<br/>
+
+	<button class="primary" onclick="upload()">Check Photo</button>
+	<button class="fix" onclick="autoFix()">Auto-Fix</button>
+
+	<div id="preview"></div>
+
+	<div id="result" class="result"></div>
+</div>
+
+<script>
+
+let lastFile = null;
+
+function showPreview(file) {
+	let reader = new FileReader();
+
+	reader.onload = function(e) {
+		document.getElementById("preview").innerHTML =
+			'<img src="' + e.target.result + '"/>';
+	};
+
+	reader.readAsDataURL(file);
+}
+
+async function upload() {
+	let file = document.getElementById("file").files[0];
+	if (!file) return alert("Выбери фото");
+
+	lastFile = file;
+
+	showPreview(file);
+
+	let form = new FormData();
+	form.append("image", file);
+
+	let res = await fetch("/validate", {
+		method: "POST",
+		body: form
+	});
+
+	let data = await res.json();
+
+	renderResult(data);
+}
+
+async function autoFix() {
+	if (!lastFile) return alert("Сначала загрузи фото");
+
+	let form = new FormData();
+	form.append("image", lastFile);
+
+	let res = await fetch("/auto-fix", {
+		method: "POST",
+		body: form
+	});
+
+	let blob = await res.blob();
+
+	let url = URL.createObjectURL(blob);
+
+	document.getElementById("preview").innerHTML =
+		'<img src="' + url + '"/>';
+
+	document.getElementById("result").innerHTML =
+		"🛠 Фото автоматически исправлено";
+	document.getElementById("result").className = "result pass";
+}
+
+function renderResult(data) {
+	let box = document.getElementById("result");
+
+	let ok = data.valid;
+
+	box.className = "result " + (ok ? "pass" : "fail");
+
+	let text = ok ? "✅ PASS\n\n" : "❌ FAIL\n\n";
+
+	text += "Score: " + data.score + "\n\n";
+
+	if (data.issues) {
+		text += "Issues:\n";
+		data.issues.forEach(i => text += "- " + i + "\n");
+	}
+
+	text += "\n💡 How to fix:\n";
+
+	if (!ok) {
+		text += "- Lower your head position\n";
+		text += "- Use natural daylight\n";
+		text += "- Avoid compression (no Telegram)\n";
+		text += "- Increase sharpness\n";
+	}
+
+	box.innerText = text;
+}
+
+</script>
+
+</body>
+</html>
+`
+		c.String(200, htmlPage)
+	})
+
 	log.Printf("Backend running on :%s", *port)
 	log.Fatal(router.Run(":" + *port))
 }
