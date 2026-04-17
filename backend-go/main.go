@@ -196,6 +196,7 @@ function drawOverlay(metrics) {
 
 	overlay.innerHTML = "";
 	overlay.setAttribute("viewBox", "0 0 600 600");
+	
 	const createLine = (y, label, color) => {
 		const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
 		line.setAttribute("x1", 0);
@@ -218,14 +219,67 @@ function drawOverlay(metrics) {
 		overlay.appendChild(text);
 	};
 
+	const createCorridor = (y1, y2, label, value, isValid) => {
+		const color = isValid ? "#10b98133" : "#ff6b6b33"; // semi-transparent green or red
+		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		rect.setAttribute("x", 0);
+		rect.setAttribute("y", Math.min(y1, y2));
+		rect.setAttribute("width", 600);
+		rect.setAttribute("height", Math.abs(y2 - y1));
+		rect.setAttribute("fill", color);
+		rect.setAttribute("pointer-events", "none");
+		overlay.appendChild(rect);
+
+		// Top line
+		const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line1.setAttribute("x1", 0);
+		line1.setAttribute("y1", Math.min(y1, y2));
+		line1.setAttribute("x2", 600);
+		line1.setAttribute("y2", Math.min(y1, y2));
+		line1.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
+		line1.setAttribute("stroke-width", 3);
+		overlay.appendChild(line1);
+
+		// Bottom line
+		const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line2.setAttribute("x1", 0);
+		line2.setAttribute("y1", Math.max(y1, y2));
+		line2.setAttribute("x2", 600);
+		line2.setAttribute("y2", Math.max(y1, y2));
+		line2.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
+		line2.setAttribute("stroke-width", 3);
+		overlay.appendChild(line2);
+
+		// Label
+		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		text.setAttribute("x", 14);
+		text.setAttribute("y", (Math.min(y1, y2) + Math.max(y1, y2)) / 2 - 8);
+		text.setAttribute("fill", isValid ? "#10b981" : "#ff6b6b");
+		text.setAttribute("font-size", "20");
+		text.setAttribute("font-family", "Arial, sans-serif");
+		text.setAttribute("font-weight", "bold");
+		text.textContent = label + ": " + value.toFixed(1) + "%";
+		overlay.appendChild(text);
+	};
+
+	// Show anatomical points
 	if (metrics.face_top_y !== undefined) {
 		createLine(metrics.face_top_y, "Макушка", "#38bdf8");
 	}
 	if (metrics.face_chin_y !== undefined) {
 		createLine(metrics.face_chin_y, "Подбородок", "#f59e0b");
 	}
-	if (metrics.eye_center_y !== undefined) {
-		createLine(metrics.eye_center_y, "Глаза", "#34d399");
+	if (metrics.face_nose_y !== undefined) {
+		createLine(metrics.face_nose_y, "Нос", "#ec4899");
+	}
+	
+	// Show eye level as a corridor (range)
+	if (metrics.eye_level !== undefined) {
+		const eyeMin = 600 * (1 - 70 / 100);  // 70% from bottom
+		const eyeMax = 600 * (1 - 49 / 100);  // 49% from bottom
+		const eyePos = 600 * (1 - metrics.eye_level / 100);
+		const isEyeValid = metrics.eye_level >= 49 && metrics.eye_level <= 70;
+		createCorridor(eyeMin, eyeMax, "Глаза", metrics.eye_level, isEyeValid);
 	}
 }
 

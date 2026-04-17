@@ -338,6 +338,20 @@ def validate_face_geometry(image, mode: str = DEFAULT_MODE):
     metrics["face_rect"] = {"x": face_rect[0], "y": face_rect[1], "w": face_rect[2], "h": face_rect[3]}
     metrics["head_percent"] = round(float(head_percent), 2)
     metrics["eye_level"] = round(float(eye_level), 2)
+    
+    # Add landmark coordinates for visualization
+    if landmarks is not None and len(landmarks) > max(TOP_HEAD_LANDMARK, CHIN_LANDMARK):
+        metrics["face_top_y"] = round(float(landmarks[TOP_HEAD_LANDMARK][1]), 2)
+        metrics["face_chin_y"] = round(float(landmarks[CHIN_LANDMARK][1]), 2)
+        # Nose tip is landmark 1
+        metrics["face_nose_y"] = round(float(landmarks[1][1]), 2) if len(landmarks) > 1 else None
+    else:
+        # Estimate from face rect if using fallback
+        if face_rect is not None:
+            x, y, fw, fh = face_rect
+            metrics["face_top_y"] = round(float(max(0.0, y - 0.18 * fh)), 2)
+            metrics["face_chin_y"] = round(float(min(float(h - 1), y + 1.02 * fh)), 2)
+            metrics["face_nose_y"] = round(float(y + 0.38 * fh), 2)
 
     # Check geometry constraints
     if head_percent < head_min or head_percent > head_max:
