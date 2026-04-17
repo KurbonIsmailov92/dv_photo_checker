@@ -1,13 +1,10 @@
 fastapi==0.104.1
 uvicorn==0.24.0
-
-opencv-python>=4.10.0
-numpy>=2.0
+opencv-python>=4.9.0.80
+numpy>=1.26.0
 Pillow>=10.0.0
-mediapipe==0.10.32
-
+mediapipe==0.10.14         
 pydantic==2.5.0
 python-multipart==0.0.6
-
 scikit-image>=0.22.0
 retina-face>=0.0.17

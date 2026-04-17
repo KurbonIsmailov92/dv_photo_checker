@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import cv2
 from auto_fix import auto_crop_to_dv_standard
 from config import DEFAULT_MODE, STRICT_MODE
 from checker import analyze_photo

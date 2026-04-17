@@ -269,18 +269,23 @@ function drawOverlay(metrics) {
 	if (metrics.face_chin_y !== undefined) {
 		createLine(metrics.face_chin_y, "Подбородок", "#f59e0b");
 	}
-	if (metrics.face_nose_y !== undefined) {
-		createLine(metrics.face_nose_y, "Нос", "#ec4899");
-	}
 	
-	// Show eye level as a corridor (range)
-	if (metrics.eye_level !== undefined) {
-		const eyeMin = 600 * (1 - 70 / 100);  // 70% from bottom
-		const eyeMax = 600 * (1 - 49 / 100);  // 49% from bottom
-		const eyePos = 600 * (1 - metrics.eye_level / 100);
-		const isEyeValid = metrics.eye_level >= 49 && metrics.eye_level <= 70;
-		createCorridor(eyeMin, eyeMax, "Глаза", metrics.eye_level, isEyeValid);
-	}
+	// Show eye level as a fixed corridor (range)
+	const eyeMin = 600 * (1 - 70 / 100);  // 70% from bottom
+	const eyeMax = 600 * (1 - 49 / 100);  // 49% from bottom
+	const isEyeValid = metrics.eye_level >= 49 && metrics.eye_level <= 70;
+	createCorridor(eyeMin, eyeMax, "Глаза", metrics.eye_level || 0, isEyeValid);
+	
+	// Vertical center line
+	const centerLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+	centerLine.setAttribute("x1", 300);
+	centerLine.setAttribute("y1", 0);
+	centerLine.setAttribute("x2", 300);
+	centerLine.setAttribute("y2", 600);
+	centerLine.setAttribute("stroke", "#ffffff");
+	centerLine.setAttribute("stroke-width", 2);
+	centerLine.setAttribute("stroke-dasharray", "5 5");
+	overlay.appendChild(centerLine);
 }
 
 async function upload() {
