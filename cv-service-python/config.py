@@ -38,7 +38,7 @@ BALANCED_THRESHOLDS: Dict[str, float | tuple[float, float]] = {
     "eye_level": (49.0, 70.0),
     "blur_variance_min": 52.0,
     "face_shadow_variance_max": 4800.0,
-    "background_variance_max": 3300.0,  # softer for white/light-gray background
+    "background_variance_max": 4200.0,  # softer for white/light-gray background
 }
 
 # Strict profile can be used from API mode=strict

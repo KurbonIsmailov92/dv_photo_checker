@@ -49,8 +49,8 @@ def calculate_crop_region(image: np.ndarray, landmarks) -> Tuple[int, int, int]:
 
     # Target: head should be TARGET_HEAD_PERCENT[0]-TARGET_HEAD_PERCENT[1] % of final image
     # Eye level should be TARGET_EYE_LEVEL[0]-TARGET_EYE_LEVEL[1] % from bottom
-    target_head_ratio = (TARGET_HEAD_PERCENT[0] + TARGET_HEAD_PERCENT[1]) / 2.0 / 100.0
-    target_eye_ratio = (TARGET_EYE_LEVEL[0] + TARGET_EYE_LEVEL[1]) / 2.0 / 100.0
+    target_head_ratio = 0.60   # вместо среднего из TARGET_HEAD_PERCENT
+    target_eye_ratio = 0.58
 
     # Calculate crop size to achieve target head ratio
     crop_size = int(head_height / target_head_ratio)
@@ -112,8 +112,8 @@ def auto_crop_to_dv_standard(image: np.ndarray) -> Tuple[np.ndarray, bool, dict]
             x, y, fw, fh = fallback_face_rect
             cx = x + fw / 2.0
             cy = y + fh * 0.38  # approximate eye center
-            target_head_ratio = (TARGET_HEAD_PERCENT[0] + TARGET_HEAD_PERCENT[1]) / 2.0 / 100.0
-            target_eye_ratio = (TARGET_EYE_LEVEL[0] + TARGET_EYE_LEVEL[1]) / 2.0 / 100.0
+            target_head_ratio = 0.60   # вместо среднего из TARGET_HEAD_PERCENT
+            target_eye_ratio = 0.58
             head_height = max(1.0, fh * 1.2)
             crop_size = int(head_height / target_head_ratio * (1.0 + CROP_MARGIN_FACTOR))
             crop_size = min(crop_size, min(h, w))

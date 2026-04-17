@@ -82,20 +82,15 @@ def _run_mesh(mesh, image_bgr: np.ndarray, target_shape: tuple[int, int]) -> lis
 
 
 def detect_face_landmarks(image: np.ndarray | None) -> list[tuple[float, float]] | None:
-    """
-    Robust Face Mesh detection:
-    1) original image,
-    2) upscaled image,
-    3) contrast-retry image (detection-only).
-    """
     image = ensure_bgr(image)
     if image is None:
         return None
 
     h, w = image.shape[:2]
+    # 3 попытки
     variants = [
         image,
-        cv2.resize(image, (int(w * 1.5), int(h * 1.5)), interpolation=cv2.INTER_LINEAR),
+        cv2.resize(image, (int(w * 1.4), int(h * 1.4)), interpolation=cv2.INTER_CUBIC),  # CUBIC лучше для лица
         detection_retry_image(image),
     ]
 
@@ -103,9 +98,15 @@ def detect_face_landmarks(image: np.ndarray | None) -> list[tuple[float, float]]
         if variant is None:
             continue
         for mesh in (_FACE_MESH_PRIMARY, _FACE_MESH_FALLBACK):
-            landmarks = _run_mesh(mesh, variant, image.shape)
-            if landmarks:
-                return landmarks
+            if mesh is None:
+                continue
+            rgb = bgr_to_rgb(variant)
+            if rgb is None:
+                continue
+            result = mesh.process(rgb)
+            if result.multi_face_landmarks:
+                # Возвращаем landmarks в оригинальном масштабе
+                return _mesh_to_pixels(result.multi_face_landmarks[0].landmark, w, h)
     return None
 
 
