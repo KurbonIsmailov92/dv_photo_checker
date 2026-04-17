@@ -4,7 +4,7 @@
 
 FROM python:3.11-slim AS python-builder
 
-# Устанавливаем системные зависимости
+# Системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -46,25 +46,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Копируем полностью установленное Python окружение
+# Копируем Python окружение
 COPY --from=python-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=python-builder /usr/local/bin /usr/local/bin
 COPY --from=python-builder /app/cv-service-python /app/cv-service-python
 
-# Копируем Go бинарник
+# Копируем Go binary
 COPY --from=go-builder /app/main /app/main
 
-# Проверка MediaPipe
-RUN python -c '
+# Проверка MediaPipe (исправленная версия)
+RUN python -c "
 import mediapipe as mp
 import cv2
-print("✅ MediaPipe version:", mp.__version__)
-print("✅ Has solutions:", hasattr(mp, "solutions"))
-print("✅ OpenCV version:", cv2.__version__)
-'
+print('✅ MediaPipe version:', mp.__version__)
+print('✅ Has solutions:', hasattr(mp, 'solutions'))
+print('✅ Face Mesh available:', hasattr(mp.solutions, 'face_mesh'))
+print('✅ OpenCV version:', cv2.__version__)
+"
 
-EXPOSE 8080  # Go backend
-EXPOSE 8002  # Python CV service (рекомендую 8002)
+EXPOSE 8080  # Go API
+EXPOSE 8000  # Python CV Service
 
-# Лучше запускать через supervisord, но для начала — простой вариант
-CMD ["sh", "-c", "cd /app/cv-service-python && uvicorn main:app --host 0.0.0.0 --port 8002 & ./main"]
+CMD ["sh", "-c", "cd /app/cv-service-python && uvicorn main:app --host 0.0.0.0 --port 8000 & ./main"]
