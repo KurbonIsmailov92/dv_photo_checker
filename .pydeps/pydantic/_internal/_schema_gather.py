@@ -4,7 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TypedDict
 
-from pydantic_core.core_schema import ComputedField, CoreSchema, DefinitionReferenceSchema, SerSchema
+from pydantic_core.core_schema import (
+    ComputedField,
+    CoreSchema,
+    DefinitionReferenceSchema,
+    SerSchema,
+    iter_union_choices,
+)
 from typing_extensions import TypeAlias
 
 AllSchemas: TypeAlias = 'CoreSchema | SerSchema | ComputedField'
@@ -114,11 +120,8 @@ def traverse_schema(schema: AllSchemas, context: GatherContext) -> None:
         if 'values_schema' in schema:
             traverse_schema(schema['values_schema'], context)
     elif schema_type == 'union':
-        for choice in schema['choices']:
-            if isinstance(choice, tuple):
-                traverse_schema(choice[0], context)
-            else:
-                traverse_schema(choice, context)
+        for choice in iter_union_choices(schema):
+            traverse_schema(choice, context)
     elif schema_type == 'tagged-union':
         for v in schema['choices'].values():
             traverse_schema(v, context)
@@ -161,6 +164,11 @@ def traverse_schema(schema: AllSchemas, context: GatherContext) -> None:
             traverse_schema(schema['return_schema'], context)
     elif schema_type == 'computed-field':
         traverse_schema(schema['return_schema'], context)
+    elif schema_type == 'function-before':
+        if 'schema' in schema:
+            traverse_schema(schema['schema'], context)
+        if 'json_schema_input_schema' in schema:
+            traverse_schema(schema['json_schema_input_schema'], context)
     elif schema_type == 'function-plain':
         # TODO duplicate schema types for serializers and validators, needs to be deduplicated.
         if 'return_schema' in schema:

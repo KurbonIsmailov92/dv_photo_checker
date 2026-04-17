@@ -14,7 +14,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-var backendURL = getEnvOrDefault("BACKEND_URL", "http://localhost:8080")
+var backendURL = getEnvOrDefault("BACKEND_URL", "http://localhost:8081")
 
 func main() {
 	token := os.Getenv("BOT_TOKEN")

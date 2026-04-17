@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from config import BALANCED_MODE, BALANCED_THRESHOLDS, STRICT_MODE
+from config import BALANCED_MODE, BALANCED_THRESHOLDS, STRICT_MODE, STRICT_THRESHOLDS
 
 
 def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
@@ -35,8 +35,8 @@ def validate_blur(img, mode: str = BALANCED_MODE):
     blur_variance = _median_laplacian_variance(gray)
     metrics["blur_variance"] = round(blur_variance, 2)
 
-    thresholds = STRICT_MODE if mode == STRICT_MODE else BALANCED_THRESHOLDS
-    blur_threshold = thresholds["blur_variance"]
+    thresholds = STRICT_THRESHOLDS if mode == STRICT_MODE else BALANCED_THRESHOLDS
+    blur_threshold = thresholds["blur_variance_min"]
     blur_score = clamp((blur_variance - 30.0) / 140.0)
     feature_scores["blur_score"] = round(blur_score, 3)
 
