@@ -30,9 +30,9 @@ func main() {
 	autoFix := flag.Bool("auto-fix", false, "Auto-fix the image if validation fails")
 
 	serviceURL := os.Getenv("CV_SERVICE_URL")
-	if serviceURL == "" {
-		serviceURL = "http://cv-service:8000"
-	}
+if serviceURL == "" {
+    serviceURL = "http://localhost:8000"
+}
 
 	log.Println("🔥 USING CV URL:", serviceURL)
 
