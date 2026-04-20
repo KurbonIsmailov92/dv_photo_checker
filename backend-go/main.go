@@ -28,7 +28,16 @@ const (
 func main() {
 	filePath := flag.String("validate", "", "Validate an image file path via the CV microservice")
 	autoFix := flag.Bool("auto-fix", false, "Auto-fix the image if validation fails")
-	serviceURL := flag.String("cv-service", getEnvOrDefault("CV_SERVICE_URL", defaultCVServiceURL), "CV microservice base URL")
+
+	envURL := os.Getenv("CV_SERVICE_URL")
+
+	defaultURL := "http://localhost:8000"
+	if envURL != "" {
+		defaultURL = envURL
+	}
+
+	serviceURL := flag.String("cv-url", defaultURL, "CV service URL")
+
 	port := flag.String("port", getEnvOrDefault("PORT", "8080"), "HTTP port for the REST service")
 	flag.Parse()
 	_ = autoFix
