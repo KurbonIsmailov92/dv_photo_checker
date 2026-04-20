@@ -30,18 +30,18 @@ func main() {
 	autoFix := flag.Bool("auto-fix", false, "Auto-fix the image if validation fails")
 
 	serviceURL := os.Getenv("CV_SERVICE_URL")
-if serviceURL == "" {
-    serviceURL = "http://cv-service:8000"
-}
+	if serviceURL == "" {
+		serviceURL = "http://cv-service:8000"
+	}
 
-log.Println("🔥 USING CV URL:", serviceURL)
+	log.Println("🔥 USING CV URL:", serviceURL)
 
 	port := flag.String("port", getEnvOrDefault("PORT", "8080"), "HTTP port for the REST service")
 	flag.Parse()
 	_ = autoFix
 
 	if *filePath != "" {
-		response, err := validateLocalFile(*filePath, *serviceURL)
+		response, err := validateLocalFile(*filePath, serviceURL)
 		if err != nil {
 			log.Fatalf("validation failed: %v", err)
 		}
@@ -54,11 +54,11 @@ log.Println("🔥 USING CV URL:", serviceURL)
 	router.GET("/health", healthHandler)
 
 	router.POST("/validate", func(c *gin.Context) {
-		uploadHandler(c, *serviceURL, "/validate")
+		uploadHandler(c, serviceURL, "/validate")
 	})
 
 	router.POST("/auto-fix", func(c *gin.Context) {
-		autoFixHandler(c, *serviceURL, "/auto-fix")
+		autoFixHandler(c, serviceURL, "/auto-fix")
 	})
 
 	router.GET("/", func(c *gin.Context) {
