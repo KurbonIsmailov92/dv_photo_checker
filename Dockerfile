@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY cv-service-python/ .
 
+
 # ---------- Go builder ----------
 FROM golang:1.22-alpine AS go-builder
 
@@ -32,6 +33,7 @@ RUN go mod download
 
 COPY backend-go/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main .
+
 
 # ---------- Final image ----------
 FROM python:3.11-slim
@@ -49,18 +51,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Копируем Python сервис
+# Копируем Python часть
 COPY --from=python-builder /app/cv-service-python /app/cv-service-python
 COPY --from=python-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 
 # Копируем Go бинарник
 COPY --from=go-builder /app/main /app/main
 
-# Supervisor config
+# Supervisor конфиг
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-EXPOSE 8080  # Go API
-EXPOSE 8000  # Python CV Service
+# Порты
+EXPOSE 8080
+EXPOSE 8000
 
-# Запуск через supervisord (надёжнее)
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
