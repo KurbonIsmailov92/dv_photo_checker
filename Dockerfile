@@ -1,18 +1,19 @@
 # =============================================
-#  DV Photo Checker — STABLE & PRODUCTION READY
+#  DV Photo Checker — FIXED & STABLE
 # =============================================
 
 # ---------- Python builder ----------
 FROM python:3.11-slim AS python-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
     ca-certificates \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/cv-service-python
@@ -39,7 +40,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main .
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -51,17 +52,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Копируем Python часть
+# Python файлы и зависимости
 COPY --from=python-builder /app/cv-service-python /app/cv-service-python
 COPY --from=python-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 
-# Копируем Go бинарник
+# Go бинарник
 COPY --from=go-builder /app/main /app/main
 
-# Supervisor конфиг
+# Supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Порты
 EXPOSE 8080
 EXPOSE 8000
 
