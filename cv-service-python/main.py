@@ -1,25 +1,15 @@
-import sys
-import os
-from pathlib import Path
-
-# === Важно: Добавляем папку в PYTHONPATH ===
-BASE_DIR = Path(__file__).parent
-sys.path.insert(0, str(BASE_DIR))
-
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+import numpy as np
+import cv2
+import traceback
 
 from checker import analyze_photo
 from auto_fix import auto_crop_to_dv_standard
 
-app = FastAPI(
-    title="DV Photo Checker CV Service",
-    description="Computer Vision service for DV Lottery photo validation",
-    version="2.0"
-)
+app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,24 +19,25 @@ app.add_middleware(
 )
 
 @app.get("/health")
-async def health():
-    return {"status": "ok", "service": "cv-service"}
+def health():
+    return {"status": "ok"}
 
+# ✅ FIXED: теперь принимает файл
 @app.post("/validate")
-async def validate_photo(data: dict):
+async def validate(file: UploadFile = File(...)):
     try:
-        # Ожидаем base64 или bytes изображения
-        image_data = data.get("image")
-        mode = data.get("mode", "balanced")
+        contents = await file.read()
 
-        if not image_data:
-            return JSONResponse(status_code=400, content={"error": "No image provided"})
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        result = analyze_photo(image_data, mode=mode)
+        if img is None:
+            return JSONResponse(status_code=400, content={"error": "Invalid image"})
+
+        result = analyze_photo(img)
         return result
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
@@ -54,26 +45,25 @@ async def validate_photo(data: dict):
                 "valid": False,
                 "score": 0,
                 "status": "ERROR",
-                "issues": [f"Server error: {str(e)}"]
-            }
+                "issues": [str(e)],
+            },
         )
 
+# ✅ FIXED: возвращает image (как ждёт Go)
 @app.post("/auto-fix")
-async def auto_fix_photo(data: dict):
+async def auto_fix(file: UploadFile = File(...)):
     try:
-        from image_utils import decode_upload_image
-        image_data = data.get("image")
-        if not image_data:
-            return JSONResponse(status_code=400, content={"error": "No image provided"})
-        
-        img = decode_upload_image(image_data)
-        cropped, _, _ = auto_crop_to_dv_standard(img)
-        
-        return {"success": True, "message": "Photo cropped successfully"}
-        
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        contents = await file.read()
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        cropped, _, _ = auto_crop_to_dv_standard(img)
+
+        _, buffer = cv2.imencode(".jpg", cropped)
+
+        return Response(content=buffer.tobytes(), media_type="image/jpeg")
+
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
