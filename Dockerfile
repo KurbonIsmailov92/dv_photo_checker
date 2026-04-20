@@ -1,5 +1,5 @@
 # =============================================
-#  DV Photo Checker — Render Optimized (Simple)
+#  DV Photo Checker — Render FIXED
 # =============================================
 
 # ---------- Python builder ----------
@@ -16,9 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/cv-service-python
+
 COPY cv-service-python/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
+
 COPY cv-service-python/ .
 
 
@@ -47,14 +49,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Python сервис
-COPY --from=python-builder /app/cv-service-python /app/cv-service-python
+# Копируем Python зависимости и код
 COPY --from=python-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=python-builder /app/cv-service-python /app/cv-service-python
 
-# Go API
+# Копируем Go бинарник
 COPY --from=go-builder /app/main /app/main
 
 EXPOSE 8080
 
-# Запускаем Python сервис в фоне и Go как главный процесс
-CMD ["sh", "-c", "uvicorn cv-service-python.main:app --host 0.0.0.0 --port 8000 & sleep 4 && exec /app/main"]
+# Запуск: Python сервис в фоне + Go как главный процесс
+CMD ["sh", "-c", "cd /app/cv-service-python && uvicorn main:app --host 0.0.0.0 --port 8000 & sleep 6 && cd /app && exec /app/main"]
