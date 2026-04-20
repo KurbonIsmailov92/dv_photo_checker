@@ -2,11 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY . .
+# 🔥 копируем только сервис
+COPY cv-service-python/ /app/
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 🔥 ВАЖНО: добавляем PYTHONPATH
 ENV PYTHONPATH=/app
 
 EXPOSE 8000

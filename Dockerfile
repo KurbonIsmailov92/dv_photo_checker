@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1\
     libgomp1 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Копируем Python сервис
-COPY cv-service-python/ /app/cv-service-python/
+COPY cv-service-python/ /cv-service-python/
 
 # Устанавливаем Python зависимости
 RUN pip install --no-cache-dir --upgrade pip && \
