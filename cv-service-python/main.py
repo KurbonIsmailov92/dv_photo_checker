@@ -1,14 +1,22 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
-import numpy as np
-import cv2
-import traceback
+import sys
+from pathlib import Path
 
+# Добавляем текущую директорию в PYTHONPATH
+BASE_DIR = Path(__file__).parent
+sys.path.insert(0, str(BASE_DIR))
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+# Импорты после настройки пути
 from checker import analyze_photo
 from auto_fix import auto_crop_to_dv_standard
 
-app = FastAPI()
+app = FastAPI(
+    title="DV Photo Checker CV Service",
+    version="2.1"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,25 +27,23 @@ app.add_middleware(
 )
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+async def health():
+    return {"status": "healthy", "service": "cv-service"}
 
-# ✅ FIXED: теперь принимает файл
 @app.post("/validate")
-async def validate(file: UploadFile = File(...)):
+async def validate(data: dict):
     try:
-        contents = await file.read()
+        image_data = data.get("image")
+        mode = data.get("mode", "balanced")
 
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if not image_data:
+            return JSONResponse(status_code=400, content={"error": "No image provided"})
 
-        if img is None:
-            return JSONResponse(status_code=400, content={"error": "Invalid image"})
-
-        result = analyze_photo(img)
+        result = analyze_photo(image_data, mode=mode)
         return result
 
     except Exception as e:
+        import traceback
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
@@ -45,25 +51,10 @@ async def validate(file: UploadFile = File(...)):
                 "valid": False,
                 "score": 0,
                 "status": "ERROR",
-                "issues": [str(e)],
-            },
+                "issues": [f"Internal error: {str(e)}"]
+            }
         )
 
-# ✅ FIXED: возвращает image (как ждёт Go)
-@app.post("/auto-fix")
-async def auto_fix(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        cropped, _, _ = auto_crop_to_dv_standard(img)
-
-        _, buffer = cv2.imencode(".jpg", cropped)
-
-        return Response(content=buffer.tobytes(), media_type="image/jpeg")
-
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"error": str(e)})
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
