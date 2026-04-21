@@ -8,75 +8,11 @@ import (
 	"os"
 	"strings"
 
+
 	"github.com/gin-gonic/gin"
 )
 
 var cvServiceURL string
-
-// ==================== ВСТРОЕННЫЙ UI ====================
-const uiHTML = `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DV Photo Checker</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50">
-  <div class="max-w-4xl mx-auto p-8">
-    <h1 class="text-4xl font-bold text-center mb-8">DV Photo Checker</h1>
-    
-    <div class="bg-white rounded-3xl shadow-2xl p-10">
-      <div id="dropzone" class="border-4 border-dashed border-gray-300 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-500">
-        <input type="file" id="fileInput" accept="image/*" class="hidden">
-        <p class="text-5xl mb-4">📸</p>
-        <p class="text-xl font-medium">Перетащите фото или нажмите для выбора</p>
-      </div>
-
-      <div class="flex justify-center gap-4 mt-8">
-        <button onclick="validatePhoto()" class="px-10 py-4 bg-blue-600 text-white rounded-2xl font-semibold">Проверить фото</button>
-        <button onclick="autoFixPhoto()" class="px-10 py-4 bg-emerald-600 text-white rounded-2xl font-semibold">Автофикс</button>
-      </div>
-
-      <div id="result" class="hidden mt-10 p-6 bg-gray-900 text-white rounded-2xl overflow-auto"></div>
-    </div>
-  </div>
-
-  <script>
-    let base64 = "";
-
-    document.getElementById('dropzone').onclick = () => document.getElementById('fileInput').click();
-    
-    document.getElementById('fileInput').onchange = e => {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = ev => {
-        base64 = ev.target.result;
-        document.getElementById('dropzone').innerHTML = 
-          '<img src="' + base64 + '" class="max-h-96 mx-auto rounded-2xl shadow-md">';
-      };
-      reader.readAsDataURL(file);
-    };
-
-    async function send(endpoint) {
-      if (!base64) return alert("Сначала загрузите фото!");
-      
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({image: base64, mode: "balanced"})
-      });
-      
-      const data = await res.json();
-      document.getElementById('result').innerHTML = '<pre class="text-sm">' + JSON.stringify(data, null, 2) + '</pre>';
-      document.getElementById('result').classList.remove('hidden');
-    }
-
-    function validatePhoto() { send('/validate'); }
-    function autoFixPhoto() { send('/auto-fix'); }
-  </script>
-</body>
-</html>`
 
 func main() {
 	cvServiceURL = os.Getenv("CV_SERVICE_URL")
@@ -110,10 +46,312 @@ func main() {
 	r.POST("/auto-fix", autoFixHandler)
 
 	fmt.Printf("✅ Backend running on :%s\n", port)
-	fmt.Printf("🌐 UI: http://localhost:%s/ui\n", port)
+	fmt.Printf("🔗 CV Service: %s\n", cvServiceURL)
 
 	r.Run(":" + port)
 }
+
+const uiHTML = `<!DOCTYPE html>
+<html>
+<head>
+	<title>DV Photo Validator Pro</title>
+	<meta charset="UTF-8">
+	<style>
+		body {
+			font-family: Arial;
+			background: #0b1220;
+			color: white;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			height: 100vh;
+		}
+
+		.card {
+			background: #111827;
+			padding: 25px;
+			border-radius: 16px;
+			width: 450px;
+			text-align: center;
+			box-shadow: 0 0 30px rgba(0,0,0,0.5);
+		}
+
+		input {
+			margin: 15px 0;
+		}
+
+		button {
+			padding: 10px 14px;
+			margin: 5px;
+			border: none;
+			border-radius: 8px;
+			cursor: pointer;
+			font-weight: bold;
+		}
+
+		.primary { background: #38bdf8; }
+		.fix { background: #f59e0b; }
+
+		.result {
+			margin-top: 15px;
+			padding: 10px;
+			border-radius: 10px;
+			text-align: left;
+			white-space: pre-wrap;
+		}
+
+		.pass {
+			background: #14532d;
+			border: 1px solid #22c55e;
+		}
+
+		.fail {
+			background: #3f1d1d;
+			border: 1px solid #ef4444;
+		}
+
+		.image-frame {
+			position: relative;
+			width: 100%;
+			margin-top: 10px;
+		}
+
+		.image-frame img {
+			width: 100%;
+			display: block;
+			border-radius: 10px;
+		}
+
+		.overlay {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+		}
+
+		.small {
+			font-size: 13px;
+			opacity: 0.8;
+		}
+	</style>
+</head>
+
+<body>
+
+<div class="card">
+	<h2>📸 DV Photo Validator Pro</h2>
+
+	<input type="file" id="file" accept="image/*"/>
+
+	<br/>
+
+	<button class="primary" onclick="upload()">Check Photo</button>
+	<button class="fix" onclick="autoFix()">Auto-Fix</button>
+
+	<div id="preview"></div>
+
+	<div id="result" class="result"></div>
+</div>
+
+<script>
+
+let lastFile = null;
+let lastResponse = null;
+
+function showPreview(file) {
+	let reader = new FileReader();
+
+	reader.onload = function(e) {
+		document.getElementById("preview").innerHTML =
+			'<div class="image-frame">' +
+			'<img id="previewImage" src="' + e.target.result + '"/>' +
+			'<svg id="previewOverlay" class="overlay"></svg>' +
+			'</div>';
+		lastResponse = null;
+	};
+
+	reader.readAsDataURL(file);
+}
+
+function drawOverlay(metrics) {
+	const img = document.getElementById("previewImage");
+	const overlay = document.getElementById("previewOverlay");
+	if (!img || !overlay || !metrics) return;
+
+	overlay.innerHTML = "";
+	overlay.setAttribute("viewBox", "0 0 600 600");
+	
+	const createLine = (y, label, color) => {
+		const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line.setAttribute("x1", 0);
+		line.setAttribute("y1", y);
+		line.setAttribute("x2", 600);
+		line.setAttribute("y2", y);
+		line.setAttribute("stroke", color);
+		line.setAttribute("stroke-width", 4);
+		line.setAttribute("stroke-dasharray", "10 8");
+		overlay.appendChild(line);
+
+		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		text.setAttribute("x", 14);
+		text.setAttribute("y", y - 8);
+		text.setAttribute("fill", color);
+		text.setAttribute("font-size", "22");
+		text.setAttribute("font-family", "Arial, sans-serif");
+		text.setAttribute("font-weight", "bold");
+		text.textContent = label;
+		overlay.appendChild(text);
+	};
+
+	const createCorridor = (y1, y2, label, value, isValid) => {
+		const color = isValid ? "#10b98133" : "#ff6b6b33"; // semi-transparent green or red
+		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		rect.setAttribute("x", 0);
+		rect.setAttribute("y", Math.min(y1, y2));
+		rect.setAttribute("width", 600);
+		rect.setAttribute("height", Math.abs(y2 - y1));
+		rect.setAttribute("fill", color);
+		rect.setAttribute("pointer-events", "none");
+		overlay.appendChild(rect);
+
+		// Top line
+		const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line1.setAttribute("x1", 0);
+		line1.setAttribute("y1", Math.min(y1, y2));
+		line1.setAttribute("x2", 600);
+		line1.setAttribute("y2", Math.min(y1, y2));
+		line1.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
+		line1.setAttribute("stroke-width", 3);
+		overlay.appendChild(line1);
+
+		// Bottom line
+		const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line2.setAttribute("x1", 0);
+		line2.setAttribute("y1", Math.max(y1, y2));
+		line2.setAttribute("x2", 600);
+		line2.setAttribute("y2", Math.max(y1, y2));
+		line2.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
+		line2.setAttribute("stroke-width", 3);
+		overlay.appendChild(line2);
+
+		// Label
+		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		text.setAttribute("x", 14);
+		text.setAttribute("y", (Math.min(y1, y2) + Math.max(y1, y2)) / 2 - 8);
+		text.setAttribute("fill", isValid ? "#10b981" : "#ff6b6b");
+		text.setAttribute("font-size", "20");
+		text.setAttribute("font-family", "Arial, sans-serif");
+		text.setAttribute("font-weight", "bold");
+		text.textContent = label + ": " + value.toFixed(1) + "%";
+		overlay.appendChild(text);
+	};
+
+	// Show anatomical points
+	if (metrics.face_top_y !== undefined) {
+		createLine(metrics.face_top_y, "Макушка", "#38bdf8");
+	}
+	if (metrics.face_chin_y !== undefined) {
+		createLine(metrics.face_chin_y, "Подбородок", "#f59e0b");
+	}
+	
+	// Show eye level as a fixed corridor (range)
+	const eyeMin = 600 * (1 - 70 / 100);  // 70% from bottom
+	const eyeMax = 600 * (1 - 49 / 100);  // 49% from bottom
+	const isEyeValid = metrics.eye_level >= 49 && metrics.eye_level <= 70;
+	createCorridor(eyeMin, eyeMax, "Глаза", metrics.eye_level || 0, isEyeValid);
+	
+	// Vertical center line
+	const centerLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+	centerLine.setAttribute("x1", 300);
+	centerLine.setAttribute("y1", 0);
+	centerLine.setAttribute("x2", 300);
+	centerLine.setAttribute("y2", 600);
+	centerLine.setAttribute("stroke", "#ffffff");
+	centerLine.setAttribute("stroke-width", 2);
+	centerLine.setAttribute("stroke-dasharray", "5 5");
+	overlay.appendChild(centerLine);
+}
+
+async function upload() {
+	let file = document.getElementById("file").files[0];
+	if (!file) return alert("Выбери фото");
+
+	lastFile = file;
+	showPreview(file);
+
+	let form = new FormData();
+	form.append("image", file);
+
+	let res = await fetch("/validate", {
+		method: "POST",
+		body: form
+	});
+
+	let data = await res.json();
+	lastResponse = data;
+	renderResult(data);
+	drawOverlay(data.metrics);
+}
+
+async function autoFix() {
+	if (!lastFile) return alert("Сначала загрузи фото");
+
+	let form = new FormData();
+	form.append("image", lastFile);
+
+	let res = await fetch("/auto-fix", {
+		method: "POST",
+		body: form
+	});
+
+	let blob = await res.blob();
+	let url = URL.createObjectURL(blob);
+	document.getElementById("preview").innerHTML =
+		'<div class="image-frame">' +
+		'<img id="previewImage" src="' + url + '"/>' +
+		'<svg id="previewOverlay" class="overlay"></svg>' +
+		'</div>';
+
+	document.getElementById("result").innerHTML =
+		"🛠 Фото автоматически исправлено";
+	document.getElementById("result").className = "result pass";
+}
+
+function renderResult(data) {
+	let box = document.getElementById("result");
+	let ok = data.valid;
+	box.className = "result " + (ok ? "pass" : "fail");
+
+	let text = ok ? "✅ PASS\n\n" : "❌ FAIL\n\n";
+	text += "Score: " + data.score + "\n\n";
+
+	if (data.issues && data.issues.length) {
+		text += "Issues:\n";
+		data.issues.forEach(i => text += "- " + i + "\n");
+	}
+
+	if (data.warnings && data.warnings.length) {
+		text += "\nWarnings:\n";
+		data.warnings.forEach(i => text += "- " + i + "\n");
+	}
+
+	text += "\n💡 How to fix:\n";
+	if (!ok) {
+		text += "- Lower your head position\n";
+		text += "- Use natural daylight\n";
+		text += "- Avoid compression (no Telegram)\n";
+		text += "- Increase sharpness\n";
+	}
+
+	box.innerText = text;
+}
+
+</script>
+
+</body>
+</html>`
 
 func validateHandler(c *gin.Context) {
 	forward(c, "/validate")
@@ -134,10 +372,10 @@ func forward(c *gin.Context, endpoint string) {
 	resp, err := http.Post(cvServiceURL+endpoint, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"valid":  false,
-			"score":  0,
+			"valid": false,
+			"score": 0,
 			"status": "ERROR",
-			"issues": []string{"CV service unavailable"},
+			"issues": []string{"CV service unavailable: " + err.Error()},
 		})
 		return
 	}

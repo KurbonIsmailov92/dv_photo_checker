@@ -119,10 +119,19 @@ def _decision(score: float, issues: list[str]) -> tuple[bool, str, str]:
 
 
 def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, Any]:
+def analyze_photo(image_input, mode: str = DEFAULT_MODE) -> dict[str, Any]:
     """
     Основная функция анализа фото для DV Lottery.
+    Поддерживает как numpy array, так и base64 строку.
     """
     try:
+        # === КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: обработка base64 ===
+        if isinstance(image_input, str):
+            from image_utils import decode_upload_image
+            image_bgr = decode_upload_image(image_input)
+        else:
+            image_bgr = image_input
+
         img = ensure_bgr(image_bgr)
         if img is None or img.size == 0:
             raise ValueError("Invalid or empty image received")
@@ -139,7 +148,7 @@ def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, 
         metrics: dict[str, Any] = {}
         features: dict[str, float] = {}
 
-        # 2. Анализ лица (самая важная часть)
+        # 2. Анализ лица
         face = validate_face_geometry(cropped, mode=mode)
         issues.extend(face.get("issues", []))
         warnings.extend(face.get("warnings", []))
@@ -174,7 +183,7 @@ def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, 
         issues.extend(blur.get("issues", []))
         warnings.extend(blur.get("warnings", []))
         metrics.update(blur.get("metrics", {}))
-        features.update(blur.get("feature_scores", {}))
+        features.update(blur.get("feature_scores", {}))s
 
         lighting = validate_lighting(cropped, face_rect=face_rect, mode=mode)
         issues.extend(lighting.get("issues", []))
@@ -182,7 +191,7 @@ def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, 
         metrics.update(lighting.get("metrics", {}))
         features.update(lighting.get("feature_scores", {}))
 
-        # 5. Финальная защита от нулевых значений
+        # 5. Защита от полного краха scoring
         if not features or "face_geometry_score" not in features:
             features["face_geometry_score"] = 0.45
             features["background_score"] = 0.65
@@ -204,7 +213,19 @@ def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, 
                 "after_crop": bool(crop_applied),
                 "crop_info": crop_info,
             }
-            # cropped_image НЕ возвращаем — это ломает JSON
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "valid": False,
+            "score": 35.0,
+            "status": "ERROR",
+            "issues": [f"Processing error: {str(e)}"],
+            "warnings": [],
+            "decision_reason": "Internal server error during analysis",
+            "metrics": {}
         }
 
     except Exception as e:
