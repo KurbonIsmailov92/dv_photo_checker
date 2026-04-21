@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DV Photo Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .drop-zone { transition: all 0.3s; }
+    .drop-zone.dragover { background-color: #f0f9ff; border-color: #3b82f6; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-4xl mx-auto p-6">
+    <div class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-gray-800 mb-2">DV Photo Checker</h1>
+      <p class="text-gray-600">Проверка и автофикс фото для Diversity Visa Lottery</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-xl p-8">
+      <!-- Загрузка фото -->
+      <div id="dropZone" 
+           class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500">
+        <input type="file" id="fileInput" accept="image/*" class="hidden">
+        <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+          📸
+        </div>
+        <p class="text-lg font-medium text-gray-700">Перетащите фото или нажмите для выбора</p>
+        <p class="text-sm text-gray-500 mt-1">Поддерживаются JPG, PNG (максимум 10MB)</p>
+      </div>
+
+      <div class="flex justify-center gap-4 mt-6">
+        <button onclick="validatePhoto()" 
+                id="validateBtn"
+                class="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition">
+          ✅ Проверить фото
+        </button>
+        <button onclick="autoFixPhoto()" 
+                id="fixBtn"
+                class="px-8 py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition">
+          🔧 Автофикс + Проверить
+        </button>
+      </div>
+
+      <!-- Результат -->
+      <div id="result" class="hidden mt-8 p-6 bg-gray-50 rounded-xl border">
+        <div id="resultContent"></div>
+      </div>
+    </div>
+
+    <div class="text-center text-sm text-gray-500 mt-8">
+      DV Photo Checker v2.1 • Работает на MediaPipe + Go
+    </div>
+  </div>
+
+  <script>
+    let currentImageBase64 = "";
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFile);
+
+    // Drag & Drop
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        currentImageBase64 = e.target.result;
+        dropZone.innerHTML = `
+          <img src="${currentImageBase64}" class="max-h-96 mx-auto rounded-xl shadow-md">
+          <p class="mt-4 text-sm text-green-600 font-medium">Фото загружено ✓</p>
+        `;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function validatePhoto() {
+      if (!currentImageBase64) {
+        alert("Сначала загрузите фото!");
+        return;
+      }
+      sendRequest('/validate', currentImageBase64);
+    }
+
+    async function autoFixPhoto() {
+      if (!currentImageBase64) {
+        alert("Сначала загрузите фото!");
+        return;
+      }
+      sendRequest('/auto-fix', currentImageBase64);
+    }
+
+    async function sendRequest(endpoint, imageBase64) {
+      const btn = endpoint === '/validate' ? document.getElementById('validateBtn') : document.getElementById('fixBtn');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "⏳ Обработка...";
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageBase64, mode: "balanced" })
+        });
+
+        const data = await res.json();
+        showResult(data);
+      } catch (err) {
+        showResult({ status: "ERROR", issues: ["Не удалось подключиться к серверу"] });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    function showResult(data) {
+      const resultDiv = document.getElementById('result');
+      const content = document.getElementById('resultContent');
+
+      let html = `<h3 class="text-xl font-bold mb-4">Результат проверки</h3>`;
+
+      if (data.score !== undefined) {
+        const color = data.score >= 80 ? 'text-green-600' : data.score >= 60 ? 'text-yellow-600' : 'text-red-600';
+        html += `<p class="text-5xl font-bold ${color}">${data.score}</p>`;
+      }
+
+      html += `<p class="text-lg mt-2 font-semibold">${data.status || data.decision_reason || ''}</p>`;
+
+      if (data.issues && data.issues.length > 0) {
+        html += `<div class="mt-4"><strong class="text-red-600">Проблемы:</strong><ul class="list-disc pl-5 mt-2">`;
+        data.issues.forEach(issue => html += `<li>${issue}</li>`);
+        html += `</ul></div>`;
+      }
+
+      if (data.warnings && data.warnings.length > 0) {
+        html += `<div class="mt-4"><strong class="text-amber-600">Предупреждения:</strong><ul class="list-disc pl-5 mt-2">`;
+        data.warnings.forEach(w => html += `<li>${w}</li>`);
+        html += `</ul></div>`;
+      }
+
+      content.innerHTML = html;
+      resultDiv.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
