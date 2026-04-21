@@ -4,18 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 var cvServiceURL string
 
-// Встроенный красивый UI
+// ==================== ВСТРОЕННЫЙ UI ====================
 const uiHTML = `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -25,45 +23,52 @@ const uiHTML = `<!DOCTYPE html>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50">
-  <div class="max-w-3xl mx-auto p-6">
-    <h1 class="text-4xl font-bold text-center mb-8 text-gray-800">DV Photo Checker</h1>
+  <div class="max-w-4xl mx-auto p-8">
+    <h1 class="text-4xl font-bold text-center mb-8">DV Photo Checker</h1>
     
-    <div id="dropzone" class="border-2 border-dashed border-gray-400 rounded-3xl p-16 text-center cursor-pointer hover:border-blue-500 transition">
-      <input type="file" id="fileInput" accept="image/*" class="hidden">
-      <p class="text-6xl mb-4">📸</p>
-      <p class="text-xl font-medium">Нажмите или перетащите фото</p>
-    </div>
+    <div class="bg-white rounded-3xl shadow-2xl p-10">
+      <div id="dropzone" class="border-4 border-dashed border-gray-300 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-500">
+        <input type="file" id="fileInput" accept="image/*" class="hidden">
+        <p class="text-5xl mb-4">📸</p>
+        <p class="text-xl font-medium">Перетащите фото или нажмите для выбора</p>
+      </div>
 
-    <div class="flex gap-4 justify-center mt-8">
-      <button onclick="validatePhoto()" class="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl">Проверить</button>
-      <button onclick="autoFixPhoto()" class="px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl">Автофикс</button>
-    </div>
+      <div class="flex justify-center gap-4 mt-8">
+        <button onclick="validatePhoto()" class="px-10 py-4 bg-blue-600 text-white rounded-2xl font-semibold">Проверить фото</button>
+        <button onclick="autoFixPhoto()" class="px-10 py-4 bg-emerald-600 text-white rounded-2xl font-semibold">Автофикс</button>
+      </div>
 
-    <div id="result" class="hidden mt-10 p-6 bg-white rounded-3xl shadow"></div>
+      <div id="result" class="hidden mt-10 p-6 bg-gray-900 text-white rounded-2xl overflow-auto"></div>
+    </div>
   </div>
 
   <script>
     let base64 = "";
+
     document.getElementById('dropzone').onclick = () => document.getElementById('fileInput').click();
+    
     document.getElementById('fileInput').onchange = e => {
       const file = e.target.files[0];
       const reader = new FileReader();
       reader.onload = ev => {
         base64 = ev.target.result;
-        document.getElementById('dropzone').innerHTML = `<img src="${base64}" class="max-h-96 mx-auto rounded-2xl">`;
+        document.getElementById('dropzone').innerHTML = 
+          '<img src="' + base64 + '" class="max-h-96 mx-auto rounded-2xl shadow-md">';
       };
       reader.readAsDataURL(file);
     };
 
     async function send(endpoint) {
-      if (!base64) return alert("Загрузите фото сначала");
+      if (!base64) return alert("Сначала загрузите фото!");
+      
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({image: base64, mode: "balanced"})
       });
+      
       const data = await res.json();
-      document.getElementById('result').innerHTML = `<pre class="bg-gray-900 text-green-400 p-6 rounded-2xl overflow-auto text-sm">${JSON.stringify(data, null, 2)}</pre>`;
+      document.getElementById('result').innerHTML = '<pre class="text-sm">' + JSON.stringify(data, null, 2) + '</pre>';
       document.getElementById('result').classList.remove('hidden');
     }
 
@@ -111,26 +116,29 @@ func main() {
 }
 
 func validateHandler(c *gin.Context) {
-	forwardRequest(c, "/validate")
+	forward(c, "/validate")
 }
 
 func autoFixHandler(c *gin.Context) {
-	forwardRequest(c, "/auto-fix")
+	forward(c, "/auto-fix")
 }
 
-func forwardRequest(c *gin.Context, endpoint string) {
-	var payload map[string]interface{}
-	if err := c.ShouldBindJSON(&payload); err != nil {
+func forward(c *gin.Context, endpoint string) {
+	var req map[string]interface{}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resp, err := http.Post(cvServiceURL+endpoint, "application/json", bytes.NewReader(func() []byte {
-		b, _ := json.Marshal(payload)
-		return b
-	}()))
+	jsonData, _ := json.Marshal(req)
+	resp, err := http.Post(cvServiceURL+endpoint, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "CV service unavailable"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"valid":  false,
+			"score":  0,
+			"status": "ERROR",
+			"issues": []string{"CV service unavailable"},
+		})
 		return
 	}
 	defer resp.Body.Close()
