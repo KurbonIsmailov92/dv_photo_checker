@@ -2,18 +2,19 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 var cvServiceURL string
+var proxyClient = &http.Client{Timeout: 120 * time.Second}
 
 func main() {
 	cvServiceURL = os.Getenv("CV_SERVICE_URL")
@@ -49,7 +50,9 @@ func main() {
 	fmt.Printf("✅ Backend running on :%s\n", port)
 	fmt.Printf("🔗 CV Service: %s\n", cvServiceURL)
 
-	r.Run(":" + port)
+	if err := r.Run(":" + port); err != nil {
+		panic(err)
+	}
 }
 
 const uiHTML = `<!DOCTYPE html>
@@ -362,13 +365,28 @@ func autoFixHandler(c *gin.Context) {
 	forward(c, "/auto-fix")
 }
 
-func forward(c *gin.Context, endpoint string) {
+func buildJSONUpstreamRequest(c *gin.Context, endpoint string) (*http.Request, int, error) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, http.StatusBadRequest, fmt.Errorf("request body is required")
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, cvServiceURL+endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	return req, http.StatusOK, nil
+}
+
+func buildMultipartUpstreamRequest(c *gin.Context, endpoint string) (*http.Request, int, error) {
 	file, header, err := c.Request.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Image file is required",
-		})
-		return
+		return nil, http.StatusBadRequest, fmt.Errorf("image file is required")
 	}
 	defer file.Close()
 
@@ -377,30 +395,75 @@ func forward(c *gin.Context, endpoint string) {
 
 	part, err := writer.CreateFormFile("image", header.Filename)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 
 	_, err = io.Copy(part, file)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 
-	writer.Close()
+	mode := c.PostForm("mode")
+	if mode != "" {
+		if err := writer.WriteField("mode", mode); err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
+	}
 
-	req, err := http.NewRequest("POST", cvServiceURL+endpoint, &buf)
+	if err := writer.Close(); err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, cvServiceURL+endpoint, &buf)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
+		return nil, http.StatusInternalServerError, err
 	}
 
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req, http.StatusOK, nil
+}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+func buildUpstreamRequest(c *gin.Context, endpoint string) (*http.Request, int, error) {
+	contentType := c.GetHeader("Content-Type")
+	if strings.HasPrefix(contentType, "application/json") {
+		return buildJSONUpstreamRequest(c, endpoint)
+	}
+
+	return buildMultipartUpstreamRequest(c, endpoint)
+}
+
+func writeUpstreamResponse(c *gin.Context, resp *http.Response) {
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(500, gin.H{
+		c.JSON(http.StatusBadGateway, gin.H{
+			"valid":  false,
+			"score":  0,
+			"status": "ERROR",
+			"issues": []string{"Failed to read CV service response: " + err.Error()},
+		})
+		return
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	c.Data(resp.StatusCode, contentType, body)
+}
+
+func forward(c *gin.Context, endpoint string) {
+	req, statusCode, err := buildUpstreamRequest(c, endpoint)
+	if err != nil {
+		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := proxyClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
 			"valid":  false,
 			"score":  0,
 			"status": "ERROR",
@@ -408,10 +471,6 @@ func forward(c *gin.Context, endpoint string) {
 		})
 		return
 	}
-	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	c.JSON(resp.StatusCode, result)
+	writeUpstreamResponse(c, resp)
 }

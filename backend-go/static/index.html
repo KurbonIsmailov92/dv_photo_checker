@@ -1,126 +1,166 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DV Photo Checker</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: 'Segoe UI', system-ui, sans-serif; }
-    .drop-zone { transition: all 0.3s; }
-    .drop-zone.dragover { background-color: #f0f9ff; border-color: #3b82f6; }
+    body { font-family: "Segoe UI", system-ui, sans-serif; }
+    .drop-zone { transition: all 0.3s ease; }
+    .drop-zone.dragover { background-color: #eff6ff; border-color: #2563eb; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
-  <div class="max-w-4xl mx-auto p-6">
-    <div class="text-center mb-8">
-      <h1 class="text-4xl font-bold text-gray-800 mb-2">DV Photo Checker</h1>
-      <p class="text-gray-600">Проверка и автофикс фото для Diversity Visa Lottery</p>
+<body class="min-h-screen bg-gray-50">
+  <div class="mx-auto max-w-4xl p-6">
+    <div class="mb-8 text-center">
+      <h1 class="mb-2 text-4xl font-bold text-gray-800">DV Photo Checker</h1>
+      <p class="text-gray-600">Validate and auto-fix photos for the Diversity Visa lottery.</p>
     </div>
 
-    <div class="bg-white rounded-2xl shadow-xl p-8">
-      <!-- Загрузка фото -->
-      <div id="dropZone" 
-           class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500">
+    <div class="rounded-2xl bg-white p-8 shadow-xl">
+      <div
+        id="dropZone"
+        class="drop-zone cursor-pointer rounded-xl border-2 border-dashed border-gray-300 p-12 text-center hover:border-blue-500"
+      >
         <input type="file" id="fileInput" accept="image/*" class="hidden">
-        <div class="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-          📸
+        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-2xl">
+          IMG
         </div>
-        <p class="text-lg font-medium text-gray-700">Перетащите фото или нажмите для выбора</p>
-        <p class="text-sm text-gray-500 mt-1">Поддерживаются JPG, PNG (максимум 10MB)</p>
+        <p class="text-lg font-medium text-gray-700">Drop a photo here or click to upload</p>
+        <p class="mt-1 text-sm text-gray-500">JPG or PNG, up to 10 MB</p>
       </div>
 
-      <div class="flex justify-center gap-4 mt-6">
-        <button onclick="validatePhoto()" 
-                id="validateBtn"
-                class="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition">
-          ✅ Проверить фото
+      <div class="mt-6 flex justify-center gap-4">
+        <button
+          onclick="validatePhoto()"
+          id="validateBtn"
+          class="rounded-xl bg-blue-600 px-8 py-3 font-semibold text-white transition hover:bg-blue-700"
+        >
+          Validate Photo
         </button>
-        <button onclick="autoFixPhoto()" 
-                id="fixBtn"
-                class="px-8 py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition">
-          🔧 Автофикс + Проверить
+        <button
+          onclick="autoFixPhoto()"
+          id="fixBtn"
+          class="rounded-xl bg-emerald-600 px-8 py-3 font-semibold text-white transition hover:bg-emerald-700"
+        >
+          Auto-Fix
         </button>
       </div>
 
-      <!-- Результат -->
-      <div id="result" class="hidden mt-8 p-6 bg-gray-50 rounded-xl border">
+      <div id="result" class="mt-8 hidden rounded-xl border bg-gray-50 p-6">
         <div id="resultContent"></div>
       </div>
     </div>
 
-    <div class="text-center text-sm text-gray-500 mt-8">
-      DV Photo Checker v2.1 • Работает на MediaPipe + Go
+    <div class="mt-8 text-center text-sm text-gray-500">
+      DV Photo Checker
     </div>
   </div>
 
   <script>
     let currentImageBase64 = "";
 
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("fileInput");
 
-    dropZone.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleFile);
+    dropZone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (event) => handleFile(event.target.files[0]));
 
-    // Drag & Drop
-    dropZone.addEventListener('dragover', e => {
-      e.preventDefault();
-      dropZone.classList.add('dragover');
+    dropZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropZone.classList.add("dragover");
     });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
-      handleFile(e.dataTransfer.files[0]);
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("dragover");
     });
+
+    dropZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("dragover");
+      handleFile(event.dataTransfer.files[0]);
+    });
+
+    function renderPreview(imageSrc, label) {
+      dropZone.innerHTML = `
+        <img src="${imageSrc}" class="mx-auto max-h-96 rounded-xl shadow-md">
+        <p class="mt-4 text-sm font-medium text-green-600">${label}</p>
+      `;
+    }
 
     function handleFile(file) {
       if (!file) return;
+
       const reader = new FileReader();
-      reader.onload = function(e) {
-        currentImageBase64 = e.target.result;
-        dropZone.innerHTML = `
-          <img src="${currentImageBase64}" class="max-h-96 mx-auto rounded-xl shadow-md">
-          <p class="mt-4 text-sm text-green-600 font-medium">Фото загружено ✓</p>
-        `;
+      reader.onload = function(event) {
+        currentImageBase64 = event.target.result;
+        renderPreview(currentImageBase64, "Photo uploaded");
       };
       reader.readAsDataURL(file);
     }
 
     async function validatePhoto() {
       if (!currentImageBase64) {
-        alert("Сначала загрузите фото!");
+        alert("Upload a photo first.");
         return;
       }
-      sendRequest('/validate', currentImageBase64);
+
+      await sendRequest("/validate", currentImageBase64);
     }
 
     async function autoFixPhoto() {
       if (!currentImageBase64) {
-        alert("Сначала загрузите фото!");
+        alert("Upload a photo first.");
         return;
       }
-      sendRequest('/auto-fix', currentImageBase64);
+
+      await sendRequest("/auto-fix", currentImageBase64);
     }
 
     async function sendRequest(endpoint, imageBase64) {
-      const btn = endpoint === '/validate' ? document.getElementById('validateBtn') : document.getElementById('fixBtn');
+      const btn = endpoint === "/validate"
+        ? document.getElementById("validateBtn")
+        : document.getElementById("fixBtn");
       const originalText = btn.textContent;
+
       btn.disabled = true;
-      btn.textContent = "⏳ Обработка...";
+      btn.textContent = "Processing...";
 
       try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: imageBase64, mode: "balanced" })
         });
 
-        const data = await res.json();
+        const contentType = response.headers.get("content-type") || "";
+        if (endpoint === "/auto-fix" && contentType.startsWith("image/")) {
+          const fixedBlob = await response.blob();
+          const fixedUrl = URL.createObjectURL(fixedBlob);
+          const reader = new FileReader();
+
+          reader.onload = function(event) {
+            currentImageBase64 = event.target.result;
+          };
+          reader.readAsDataURL(fixedBlob);
+
+          renderPreview(fixedUrl, "Auto-fix applied");
+          showResult({
+            status: "AUTO-FIXED",
+            warnings: ["The image was cropped and exported as a 600x600 JPEG."],
+            issues: []
+          });
+          return;
+        }
+
+        const data = await response.json();
         showResult(data);
-      } catch (err) {
-        showResult({ status: "ERROR", issues: ["Не удалось подключиться к серверу"] });
+      } catch (error) {
+        showResult({
+          status: "ERROR",
+          issues: ["Could not connect to the server."]
+        });
       } finally {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -128,32 +168,42 @@
     }
 
     function showResult(data) {
-      const resultDiv = document.getElementById('result');
-      const content = document.getElementById('resultContent');
+      const resultDiv = document.getElementById("result");
+      const content = document.getElementById("resultContent");
 
-      let html = `<h3 class="text-xl font-bold mb-4">Результат проверки</h3>`;
+      let html = '<h3 class="mb-4 text-xl font-bold">Result</h3>';
 
       if (data.score !== undefined) {
-        const color = data.score >= 80 ? 'text-green-600' : data.score >= 60 ? 'text-yellow-600' : 'text-red-600';
+        const color = data.score >= 80
+          ? "text-green-600"
+          : data.score >= 60
+            ? "text-yellow-600"
+            : "text-red-600";
         html += `<p class="text-5xl font-bold ${color}">${data.score}</p>`;
       }
 
-      html += `<p class="text-lg mt-2 font-semibold">${data.status || data.decision_reason || ''}</p>`;
+      if (data.status || data.decision_reason) {
+        html += `<p class="mt-2 text-lg font-semibold">${data.status || data.decision_reason}</p>`;
+      }
 
       if (data.issues && data.issues.length > 0) {
-        html += `<div class="mt-4"><strong class="text-red-600">Проблемы:</strong><ul class="list-disc pl-5 mt-2">`;
-        data.issues.forEach(issue => html += `<li>${issue}</li>`);
-        html += `</ul></div>`;
+        html += '<div class="mt-4"><strong class="text-red-600">Issues:</strong><ul class="mt-2 list-disc pl-5">';
+        data.issues.forEach((issue) => {
+          html += `<li>${issue}</li>`;
+        });
+        html += "</ul></div>";
       }
 
       if (data.warnings && data.warnings.length > 0) {
-        html += `<div class="mt-4"><strong class="text-amber-600">Предупреждения:</strong><ul class="list-disc pl-5 mt-2">`;
-        data.warnings.forEach(w => html += `<li>${w}</li>`);
-        html += `</ul></div>`;
+        html += '<div class="mt-4"><strong class="text-amber-600">Warnings:</strong><ul class="mt-2 list-disc pl-5">';
+        data.warnings.forEach((warning) => {
+          html += `<li>${warning}</li>`;
+        });
+        html += "</ul></div>";
       }
 
       content.innerHTML = html;
-      resultDiv.classList.remove('hidden');
+      resultDiv.classList.remove("hidden");
     }
   </script>
 </body>

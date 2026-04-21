@@ -1,34 +1,36 @@
 # DV Photo Validator Pro
 
-A production-ready system to validate and auto-fix photos for US DV Lottery applications, similar or superior to ASTAR Photo Validator.
-
-## Features
-
-- **Advanced Face Detection**: MediaPipe Face Mesh with 468 landmarks for precise measurements
-- **Crown Detection**: Hybrid forehead landmark + bounding box with empirical offset
-- **Pose Estimation**: solvePnP with 3D face model for accurate yaw/pitch/roll
-- **Background Segmentation**: U2Net/rembg for real background removal and uniformity analysis
-- **Weighted Scoring**: Robust scoring system (face 40%, background 30%, lighting 15%, blur 15%)
-- **Auto-Fix**: Crop, resize, and background normalization with rembg
-- **Explainable Results**: Detailed issues and metrics
+DV Photo Validator Pro checks and auto-fixes photos for US DV Lottery applications.
 
 ## Architecture
 
-- **Backend**: Go with Gin framework
-- **CV Service**: Python with FastAPI, OpenCV, MediaPipe
-- **Communication**: REST API
+- `backend-go`: Go + Gin HTTP backend and UI
+- `cv-service-python`: FastAPI service for image analysis
+- Communication between services happens over HTTP
+
+## Features
+
+- Face geometry validation with MediaPipe landmarks and fallback face-box detection
+- Weighted 0-100 scoring based on face geometry, background, blur, and lighting
+- Auto-fix endpoint that crops and exports a DV-friendly 600x600 JPEG
+- Structured response with issues, warnings, metrics, and crop metadata
+- Support for both multipart uploads and JSON base64 payloads
 
 ## Quick Start
 
-### Using Docker (Recommended)
+### Docker Compose
 
 ```bash
 docker-compose up --build
 ```
 
-### Manual Setup
+### Render
 
-#### Backend (Go)
+Render can build the repository root with the top-level `Dockerfile`. That image starts both the Go backend and the Python CV service in one container, and the Go backend talks to the Python service over `http://127.0.0.1:8000`.
+
+### Manual Run
+
+Backend:
 
 ```bash
 cd backend-go
@@ -36,108 +38,81 @@ go mod tidy
 go run main.go
 ```
 
-#### CV Service (Python)
+CV service:
 
 ```bash
 cd cv-service-python
 pip install -r requirements.txt
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
 
-## API Usage
+## API
 
-### Validate Image
+Validate an image:
+
 ```bash
-curl -X POST -F "image=@photo.jpg" -F "auto_fix=true" http://localhost:8080/validate
+curl -X POST -F "image=@photo.jpg" http://localhost:8080/validate
 ```
 
-Response:
+Auto-fix an image:
+
+```bash
+curl -X POST -F "image=@photo.jpg" http://localhost:8080/auto-fix --output fixed.jpg
+```
+
+Example validation response:
+
 ```json
 {
   "valid": true,
-  "score": 95,
-  "pass_probability": 0.92,
+  "score": 91.4,
+  "pass_probability": 0.914,
+  "status": "PASS",
   "issues": [],
+  "warnings": [],
+  "decision_reason": "Photo passes DV standards",
   "metrics": {
-    "head_ratio": 55.2,
-    "eye_level": 62.1,
-    "brightness": 120,
-    "blur_score": 350,
-    "face_angle": {
-      "yaw": 2.1,
-      "pitch": -1.5,
-      "roll": 0.8
-    }
+    "head_percent": 58.1,
+    "eye_level": 61.7,
+    "blur_variance": 143.2,
+    "mean_brightness": 132.4
   }
 }
 ```
 
-### CLI
-```bash
-go run main.go -validate photo.jpg -auto-fix
-```
-
 ## Telegram Bot
 
-Create `.env` in the project root and set your bot token:
+Create `.env` in the project root:
+
 ```env
 BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 BACKEND_URL=http://localhost:8080
 ```
 
-Then start the bot:
+Then run:
+
 ```bash
 cd telegram-bot
 go mod tidy
 go run .
 ```
 
-The bot supports:
-- photo validation
-- failed photo buttons: Fix Photo, Why Failed
-- three free checks per user
-
-## Validation Rules
-
-- **Resolution**: Exactly 600x600 px
-- **Format**: JPEG, <240KB
-- **Face**: One face, head 50-69% (crown to chin with landmark accuracy)
-- **Eye Level**: 56-69% from bottom
-- **Centering**: <7% horiz, <10% vert deviation
-- **Pose**: Yaw/Pitch/Roll <15° using solvePnP
-- **Background**: Uniform via rembg segmentation, low variance
-- **Lighting**: 70-230 brightness, no face shadows
-- **Blur**: Laplacian >100
-- **Glasses**: Heuristic eye region detection
-
-## Scoring System
-
-**Weighted Algorithm** (robust against single failures):
-- Face validation: 40%
-- Background: 30%
-- Lighting: 15%
-- Blur: 15%
-
-Score = 100 × (face_score × 0.4 + background_score × 0.3 + lighting_score × 0.15 + blur_score × 0.15)
-
-Pass Probability = Score / 100
-
-Valid if Score ≥ 80 and no critical issues.
-
 ## Project Structure
 
-```
+```text
 /backend-go
   main.go
   models/response.go
+  static/index.html
 
 /cv-service-python
   main.py
-  face.py (landmarks, pose)
-  background.py (edges, segmentation)
-  blur.py
-  lighting.py
-  auto_fix.py (crop, resize)
+  checker.py
+  face_analyzer.py
+  blur_analysis.py
+  lighting_analysis.py
+  auto_fix.py
+  image_utils.py
 ```
 
 ## License
