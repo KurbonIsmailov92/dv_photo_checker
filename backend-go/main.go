@@ -178,6 +178,7 @@ function showPreview(file) {
 			'<svg id="previewOverlay" class="overlay"></svg>' +
 			'</div>';
 		lastResponse = null;
+		drawOverlay({});
 	};
 
 	reader.readAsDataURL(file);
@@ -186,100 +187,196 @@ function showPreview(file) {
 function drawOverlay(metrics) {
 	const img = document.getElementById("previewImage");
 	const overlay = document.getElementById("previewOverlay");
-	if (!img || !overlay || !metrics) return;
-
+	if (!img || !overlay) return;
+	metrics = metrics || {};
 	overlay.innerHTML = "";
 	overlay.setAttribute("viewBox", "0 0 600 600");
-	
+	const viewSize = 600;
+	const rangeDash = "\u2013";
+	const eyeLabel = "Eye Level (56%" + rangeDash + "69%)";
+	const headLabel = "Head Size (50%" + rangeDash + "69%)";
+	const eyeMinPct = 56;
+	const eyeMaxPct = 69;
+	const headMinPct = 50;
+	const headMaxPct = 69;
+	const centerX = viewSize / 2;
+	const noseZoneHalfWidth = viewSize * 0.05;
+	const eyeZoneTopY = viewSize * (1 - eyeMaxPct / 100);
+	const eyeZoneBottomY = viewSize * (1 - eyeMinPct / 100);
+	const headMinPx = viewSize * (headMinPct / 100);
+	const headMaxPx = viewSize * (headMaxPct / 100);
+	const faceTopY = typeof metrics.face_top_y === "number" ? metrics.face_top_y : null;
+	const faceChinY = typeof metrics.face_chin_y === "number" ? metrics.face_chin_y : null;
+	const eyeLevel = typeof metrics.eye_level === "number" ? metrics.eye_level : null;
+	const faceRect = metrics.face_rect && typeof metrics.face_rect === "object" ? metrics.face_rect : null;
+	const noseX = faceRect && typeof faceRect.x === "number" && typeof faceRect.w === "number"
+		? faceRect.x + faceRect.w / 2
+		: null;
+	const zoneColor = (isValid) => isValid === false ? "#ef4444" : "#10b981";
+	const zoneFill = (isValid) => isValid === false ? "#ef444433" : "#10b98133";
+	const createText = (x, y, label, color, anchor) => {
+		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		text.setAttribute("x", x);
+		text.setAttribute("y", y);
+		text.setAttribute("fill", color);
+		text.setAttribute("font-size", "18");
+		text.setAttribute("font-family", "Arial, sans-serif");
+		text.setAttribute("font-weight", "bold");
+		text.setAttribute("text-anchor", anchor || "start");
+		text.textContent = label;
+		overlay.appendChild(text);
+	};
 	const createLine = (y, label, color) => {
 		const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
 		line.setAttribute("x1", 0);
 		line.setAttribute("y1", y);
-		line.setAttribute("x2", 600);
+		line.setAttribute("x2", viewSize);
 		line.setAttribute("y2", y);
 		line.setAttribute("stroke", color);
-		line.setAttribute("stroke-width", 4);
+		line.setAttribute("stroke-width", "3");
 		line.setAttribute("stroke-dasharray", "10 8");
 		overlay.appendChild(line);
-
-		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-		text.setAttribute("x", 14);
-		text.setAttribute("y", y - 8);
-		text.setAttribute("fill", color);
-		text.setAttribute("font-size", "22");
-		text.setAttribute("font-family", "Arial, sans-serif");
-		text.setAttribute("font-weight", "bold");
-		text.textContent = label;
-		overlay.appendChild(text);
+		createText(14, Math.max(18, y - 8), label, color);
 	};
-
-	const createCorridor = (y1, y2, label, value, isValid) => {
-		const color = isValid ? "#10b98133" : "#ff6b6b33"; // semi-transparent green or red
+	const createCorridor = (y1, y2, label, isValid) => {
+		const stroke = zoneColor(isValid);
 		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
 		rect.setAttribute("x", 0);
 		rect.setAttribute("y", Math.min(y1, y2));
-		rect.setAttribute("width", 600);
+		rect.setAttribute("width", viewSize);
 		rect.setAttribute("height", Math.abs(y2 - y1));
-		rect.setAttribute("fill", color);
+		rect.setAttribute("fill", zoneFill(isValid));
 		rect.setAttribute("pointer-events", "none");
 		overlay.appendChild(rect);
-
-		// Top line
 		const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
 		line1.setAttribute("x1", 0);
 		line1.setAttribute("y1", Math.min(y1, y2));
-		line1.setAttribute("x2", 600);
+		line1.setAttribute("x2", viewSize);
 		line1.setAttribute("y2", Math.min(y1, y2));
-		line1.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
-		line1.setAttribute("stroke-width", 3);
+		line1.setAttribute("stroke", stroke);
+		line1.setAttribute("stroke-width", "3");
+		line1.setAttribute("stroke-dasharray", "10 8");
 		overlay.appendChild(line1);
-
-		// Bottom line
 		const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
 		line2.setAttribute("x1", 0);
 		line2.setAttribute("y1", Math.max(y1, y2));
-		line2.setAttribute("x2", 600);
+		line2.setAttribute("x2", viewSize);
 		line2.setAttribute("y2", Math.max(y1, y2));
-		line2.setAttribute("stroke", isValid ? "#10b981" : "#ff6b6b");
-		line2.setAttribute("stroke-width", 3);
+		line2.setAttribute("stroke", stroke);
+		line2.setAttribute("stroke-width", "3");
+		line2.setAttribute("stroke-dasharray", "10 8");
 		overlay.appendChild(line2);
-
-		// Label
-		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-		text.setAttribute("x", 14);
-		text.setAttribute("y", (Math.min(y1, y2) + Math.max(y1, y2)) / 2 - 8);
-		text.setAttribute("fill", isValid ? "#10b981" : "#ff6b6b");
-		text.setAttribute("font-size", "20");
-		text.setAttribute("font-family", "Arial, sans-serif");
-		text.setAttribute("font-weight", "bold");
-		text.textContent = label + ": " + value.toFixed(1) + "%";
-		overlay.appendChild(text);
+		createText(14, Math.max(20, Math.min(y1, y2) - 10), label, stroke);
 	};
-
-	// Show anatomical points
-	if (metrics.face_top_y !== undefined) {
-		createLine(metrics.face_top_y, "Макушка", "#38bdf8");
+	const createVerticalZone = (x1, x2, label, isValid) => {
+		const stroke = zoneColor(isValid);
+		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		rect.setAttribute("x", Math.min(x1, x2));
+		rect.setAttribute("y", 0);
+		rect.setAttribute("width", Math.abs(x2 - x1));
+		rect.setAttribute("height", viewSize);
+		rect.setAttribute("fill", zoneFill(isValid));
+		rect.setAttribute("pointer-events", "none");
+		overlay.appendChild(rect);
+		const line1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line1.setAttribute("x1", Math.min(x1, x2));
+		line1.setAttribute("y1", 0);
+		line1.setAttribute("x2", Math.min(x1, x2));
+		line1.setAttribute("y2", viewSize);
+		line1.setAttribute("stroke", stroke);
+		line1.setAttribute("stroke-width", "2");
+		line1.setAttribute("stroke-dasharray", "10 8");
+		overlay.appendChild(line1);
+		const line2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line2.setAttribute("x1", Math.max(x1, x2));
+		line2.setAttribute("y1", 0);
+		line2.setAttribute("x2", Math.max(x1, x2));
+		line2.setAttribute("y2", viewSize);
+		line2.setAttribute("stroke", stroke);
+		line2.setAttribute("stroke-width", "2");
+		line2.setAttribute("stroke-dasharray", "10 8");
+		overlay.appendChild(line2);
+		createText(centerX, 32, label, stroke, "middle");
+	};
+	const createVerticalLine = (x, label, color) => {
+		const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+		line.setAttribute("x1", x);
+		line.setAttribute("y1", 0);
+		line.setAttribute("x2", x);
+		line.setAttribute("y2", viewSize);
+		line.setAttribute("stroke", color);
+		line.setAttribute("stroke-width", "2");
+		line.setAttribute("stroke-dasharray", "6 6");
+		overlay.appendChild(line);
+		createText(x + 8, 54, label, color);
+	};
+	const createHeadReference = () => {
+		const x = 540;
+		const width = 34;
+		const outerY = (viewSize - headMaxPx) / 2;
+		const innerY = (viewSize - headMinPx) / 2;
+		const outer = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		outer.setAttribute("x", x);
+		outer.setAttribute("y", outerY);
+		outer.setAttribute("width", width);
+		outer.setAttribute("height", headMaxPx);
+		outer.setAttribute("fill", "#10b98112");
+		outer.setAttribute("stroke", "#10b981");
+		outer.setAttribute("stroke-width", "2");
+		outer.setAttribute("stroke-dasharray", "10 8");
+		overlay.appendChild(outer);
+		const inner = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		inner.setAttribute("x", x + 6);
+		inner.setAttribute("y", innerY);
+		inner.setAttribute("width", width - 12);
+		inner.setAttribute("height", headMinPx);
+		inner.setAttribute("fill", "#10b98122");
+		inner.setAttribute("stroke", "#10b981");
+		inner.setAttribute("stroke-width", "2");
+		inner.setAttribute("stroke-dasharray", "8 6");
+		overlay.appendChild(inner);
+		createText(viewSize - 12, Math.max(18, outerY - 10), headLabel, "#10b981", "end");
+	};
+	const eyeValid = eyeLevel === null ? null : eyeLevel >= eyeMinPct && eyeLevel <= eyeMaxPct;
+	createCorridor(eyeZoneTopY, eyeZoneBottomY, eyeLabel, eyeValid);
+	if (eyeLevel !== null) {
+		const eyeY = viewSize * (1 - eyeLevel / 100);
+		createLine(eyeY, "Actual Eyes: " + eyeLevel.toFixed(1) + "%", zoneColor(eyeValid));
 	}
-	if (metrics.face_chin_y !== undefined) {
-		createLine(metrics.face_chin_y, "Подбородок", "#f59e0b");
+	const noseValid = noseX === null ? null : Math.abs(noseX - centerX) <= noseZoneHalfWidth;
+	createVerticalZone(centerX - noseZoneHalfWidth, centerX + noseZoneHalfWidth, "Nose should be centered", noseValid);
+	createVerticalLine(centerX, "Center", "#ffffff");
+	if (noseX !== null) {
+		createVerticalLine(noseX, "Approx. Nose", zoneColor(noseValid));
 	}
-	
-	// Show eye level as a fixed corridor (range)
-	const eyeMin = 600 * (1 - 70 / 100);  // 70% from bottom
-	const eyeMax = 600 * (1 - 49 / 100);  // 49% from bottom
-	const isEyeValid = metrics.eye_level >= 49 && metrics.eye_level <= 70;
-	createCorridor(eyeMin, eyeMax, "Глаза", metrics.eye_level || 0, isEyeValid);
-	
-	// Vertical center line
-	const centerLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-	centerLine.setAttribute("x1", 300);
-	centerLine.setAttribute("y1", 0);
-	centerLine.setAttribute("x2", 300);
-	centerLine.setAttribute("y2", 600);
-	centerLine.setAttribute("stroke", "#ffffff");
-	centerLine.setAttribute("stroke-width", 2);
-	centerLine.setAttribute("stroke-dasharray", "5 5");
-	overlay.appendChild(centerLine);
+	if (faceTopY !== null && faceChinY !== null) {
+		const headHeightPct = ((faceChinY - faceTopY) / viewSize) * 100;
+		const headValid = headHeightPct >= headMinPct && headHeightPct <= headMaxPct;
+		const allowedTopMin = Math.max(0, faceChinY - headMaxPx);
+		const allowedTopMax = Math.min(viewSize, faceChinY - headMinPx);
+		createCorridor(allowedTopMin, allowedTopMax, headLabel, headValid);
+		createLine(faceTopY, "Top of Head", headValid ? "#38bdf8" : "#ef4444");
+		createLine(faceChinY, "Chin", headValid ? "#f59e0b" : "#ef4444");
+		createText(viewSize - 14, Math.max(20, faceChinY - 10), "Actual: " + headHeightPct.toFixed(1) + "%", zoneColor(headValid), "end");
+	} else if (faceChinY !== null) {
+		createCorridor(
+			Math.max(0, faceChinY - headMaxPx),
+			Math.min(viewSize, faceChinY - headMinPx),
+			headLabel,
+			null
+		);
+		createLine(faceChinY, "Chin", "#f59e0b");
+	} else if (faceTopY !== null) {
+		createCorridor(
+			Math.max(0, faceTopY + headMinPx),
+			Math.min(viewSize, faceTopY + headMaxPx),
+			headLabel,
+			null
+		);
+		createLine(faceTopY, "Top of Head", "#38bdf8");
+	} else {
+		createHeadReference();
+	}
 }
 
 async function upload() {
@@ -321,6 +418,7 @@ async function autoFix() {
 		'<img id="previewImage" src="' + url + '"/>' +
 		'<svg id="previewOverlay" class="overlay"></svg>' +
 		'</div>';
+	drawOverlay({});
 
 	document.getElementById("result").innerHTML =
 		"🛠 Фото автоматически исправлено";
