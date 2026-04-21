@@ -288,7 +288,13 @@ def face_geometry_score(head_percent: float, eye_level: float) -> float:
     return float(np.mean([head_score, eye_score]))
 
 
-def validate_face_geometry(image, mode: str = DEFAULT_MODE):
+def validate_face_geometry(
+    image,
+    mode: str = DEFAULT_MODE,
+    *,
+    enforce_rules: bool = True,
+    post_fix: bool = False,
+):
     """
     Validate face geometry using landmarks or face box estimation.
     
@@ -310,6 +316,13 @@ def validate_face_geometry(image, mode: str = DEFAULT_MODE):
     thresholds = STRICT_THRESHOLDS if mode == STRICT_MODE else BALANCED_THRESHOLDS
     head_min, head_max = thresholds["head_percent"]
     eye_min, eye_max = thresholds["eye_level"]
+
+    if post_fix:
+        tolerance = 1.0 if mode == STRICT_MODE else 1.5
+        head_min -= tolerance
+        head_max += tolerance
+        eye_min -= tolerance
+        eye_max += tolerance
 
     # Detect landmarks first
     landmarks = detect_face_landmarks(image)
@@ -354,14 +367,16 @@ def validate_face_geometry(image, mode: str = DEFAULT_MODE):
             metrics["face_nose_y"] = round(float(y + 0.38 * fh), 2)
 
     # Check geometry constraints
-    if head_percent < head_min or head_percent > head_max:
-        (warnings if mode == BALANCED_MODE else issues).append(
-            f"Head percent is outside allowed range ({head_percent:.1f}%)"
-        )
-    if eye_level < eye_min or eye_level > eye_max:
-        (warnings if mode == BALANCED_MODE else issues).append(
-            f"Eye level is outside allowed range ({eye_level:.1f}%)"
-        )
+    if enforce_rules:
+        if head_percent < head_min or head_percent > head_max:
+            deviation = min(abs(head_percent - head_min), abs(head_percent - head_max))
+            target = warnings if mode == BALANCED_MODE or (post_fix and deviation <= 1.5) else issues
+            target.append(f"Head percent is outside allowed range ({head_percent:.1f}%)")
+
+        if eye_level < eye_min or eye_level > eye_max:
+            deviation = min(abs(eye_level - eye_min), abs(eye_level - eye_max))
+            target = warnings if mode == BALANCED_MODE or (post_fix and deviation <= 1.5) else issues
+            target.append(f"Eye level is outside allowed range ({eye_level:.1f}%)")
 
     # Calculate score (slightly penalize if using face box instead of landmarks)
     base = face_geometry_score(head_percent, eye_level)

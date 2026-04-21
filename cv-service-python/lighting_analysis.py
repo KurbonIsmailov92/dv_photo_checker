@@ -19,18 +19,35 @@ def _central_face_fallback_roi(gray: np.ndarray) -> tuple[int, int, int, int]:
     return x0, y0, side, side
 
 
-def _face_shadow_variance(gray: np.ndarray, face_rect=None) -> float:
+def _clip_face_rect(gray: np.ndarray, face_rect=None) -> tuple[int, int, int, int]:
+    h, w = gray.shape[:2]
     if face_rect is None:
-        x, y, fw, fh = _central_face_fallback_roi(gray)
-    else:
-        x, y, fw, fh = face_rect
+        return _central_face_fallback_roi(gray)
+
+    x, y, fw, fh = [int(v) for v in face_rect]
+    x = max(0, min(x, w - 1))
+    y = max(0, min(y, h - 1))
+    fw = max(1, min(fw, w - x))
+    fh = max(1, min(fh, h - y))
+    return x, y, fw, fh
+
+
+def _face_shadow_variance(gray: np.ndarray, face_rect=None) -> float:
+    x, y, fw, fh = _clip_face_rect(gray, face_rect=face_rect)
     face_region = gray[y : y + fh, x : x + fw]
     if face_region.size == 0:
         return float(np.var(gray))
     return float(np.var(face_region))
 
 
-def validate_lighting(img, face_rect=None, mode: str = BALANCED_MODE):
+def validate_lighting(
+    img,
+    face_rect=None,
+    mode: str = BALANCED_MODE,
+    *,
+    crop_applied: bool = False,
+    context: str = "initial",
+):
     issues = []
     warnings = []
     metrics = {}
@@ -58,6 +75,8 @@ def validate_lighting(img, face_rect=None, mode: str = BALANCED_MODE):
 
     thresholds = STRICT_THRESHOLDS if mode == STRICT_MODE else BALANCED_THRESHOLDS
     shadow_limit = thresholds["face_shadow_variance_max"]
+    if context == "post_fix" and crop_applied:
+        shadow_limit += 500.0 if mode == STRICT_MODE else 700.0
 
     if shadow_variance > shadow_limit:
         if mode == BALANCED_MODE and shadow_variance <= shadow_limit + 600.0:
