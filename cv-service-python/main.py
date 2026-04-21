@@ -19,6 +19,7 @@ from config import DEFAULT_MODE, STRICT_MODE
 from image_utils import decode_upload_image
 
 VALID_MODES = {DEFAULT_MODE, STRICT_MODE}
+ALLOWED_BINARY_UPLOAD_TYPES = {"application/octet-stream"}
 
 app = FastAPI(
     title="DV Photo Checker CV Service",
@@ -50,7 +51,8 @@ async def _extract_request_image(
     form_mode: str,
 ) -> tuple[bytes | str, str]:
     if image is not None:
-        if image.content_type and not image.content_type.startswith("image/"):
+        content_type = (image.content_type or "").lower()
+        if content_type and not content_type.startswith("image/") and content_type not in ALLOWED_BINARY_UPLOAD_TYPES:
             raise HTTPException(status_code=400, detail="File must be an image")
 
         contents = await image.read()

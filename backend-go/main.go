@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"strings"
 	"time"
@@ -42,6 +43,9 @@ func main() {
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
 	})
 
 	r.POST("/validate", validateHandler)
@@ -393,7 +397,15 @@ func buildMultipartUpstreamRequest(c *gin.Context, endpoint string) (*http.Reque
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	part, err := writer.CreateFormFile("image", header.Filename)
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="image"; filename="%s"`, header.Filename))
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	partHeader.Set("Content-Type", contentType)
+
+	part, err := writer.CreatePart(partHeader)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
