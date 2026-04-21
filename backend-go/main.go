@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
-
 
 	"github.com/gin-gonic/gin"
 )
@@ -362,18 +363,46 @@ func autoFixHandler(c *gin.Context) {
 }
 
 func forward(c *gin.Context, endpoint string) {
-	var req map[string]interface{}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	file, header, err := c.Request.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Image file is required",
+		})
+		return
+	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	part, err := writer.CreateFormFile("image", header.Filename)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	jsonData, _ := json.Marshal(req)
-	resp, err := http.Post(cvServiceURL+endpoint, "application/json", bytes.NewReader(jsonData))
+	_, err = io.Copy(part, file)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"valid": false,
-			"score": 0,
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	writer.Close()
+
+	req, err := http.NewRequest("POST", cvServiceURL+endpoint, &buf)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{
+			"valid":  false,
+			"score":  0,
 			"status": "ERROR",
 			"issues": []string{"CV service unavailable: " + err.Error()},
 		})
@@ -381,7 +410,8 @@ func forward(c *gin.Context, endpoint string) {
 	}
 	defer resp.Body.Close()
 
-	var result interface{}
+	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
+
 	c.JSON(resp.StatusCode, result)
 }
