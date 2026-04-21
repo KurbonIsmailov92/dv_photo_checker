@@ -117,8 +117,6 @@ def _decision(score: float, issues: list[str]) -> tuple[bool, str, str]:
         return True, "Photo passes with minor concerns", "WARNING"
     return False, "Photo quality is below standards", "FAIL"
 
-
-def analyze_photo(image_bgr: np.ndarray, mode: str = DEFAULT_MODE) -> dict[str, Any]:
 def analyze_photo(image_input, mode: str = DEFAULT_MODE) -> dict[str, Any]:
     """
     Основная функция анализа фото для DV Lottery.
@@ -183,7 +181,7 @@ def analyze_photo(image_input, mode: str = DEFAULT_MODE) -> dict[str, Any]:
         issues.extend(blur.get("issues", []))
         warnings.extend(blur.get("warnings", []))
         metrics.update(blur.get("metrics", {}))
-        features.update(blur.get("feature_scores", {}))s
+        features.update(blur.get("feature_scores", {}))
 
         lighting = validate_lighting(cropped, face_rect=face_rect, mode=mode)
         issues.extend(lighting.get("issues", []))
@@ -213,19 +211,6 @@ def analyze_photo(image_input, mode: str = DEFAULT_MODE) -> dict[str, Any]:
                 "after_crop": bool(crop_applied),
                 "crop_info": crop_info,
             }
-        }
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {
-            "valid": False,
-            "score": 35.0,
-            "status": "ERROR",
-            "issues": [f"Processing error: {str(e)}"],
-            "warnings": [],
-            "decision_reason": "Internal server error during analysis",
-            "metrics": {}
         }
 
     except Exception as e:
