@@ -13,32 +13,74 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ValidateRequest struct {
-	Image string `json:"image"`
-	Mode  string `json:"mode,omitempty"`
-}
-
-type CVResponse struct {
-	Valid          bool     `json:"valid"`
-	Score          float64  `json:"score"`
-	Status         string   `json:"status"`
-	Issues         []string `json:"issues"`
-	Warnings       []string `json:"warnings"`
-	DecisionReason string   `json:"decision_reason"`
-	Metrics        any      `json:"metrics,omitempty"`
-	Detail         any      `json:"detail,omitempty"`
-}
-
 var cvServiceURL string
 
+// Встроенный HTML для /ui
+const uiHTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DV Photo Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body{font-family:system-ui,sans-serif}</style>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-4xl mx-auto p-6">
+    <h1 class="text-4xl font-bold text-center mb-8">DV Photo Checker</h1>
+    
+    <div class="bg-white rounded-3xl shadow-2xl p-10">
+      <div id="dropzone" class="border-2 border-dashed border-gray-400 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-500">
+        <input type="file" id="file" accept="image/*" class="hidden">
+        <p class="text-2xl mb-2">📸</p>
+        <p class="text-xl font-medium">Загрузите фото</p>
+      </div>
+
+      <div class="flex gap-4 justify-center mt-8">
+        <button onclick="validate()" class="px-10 py-4 bg-blue-600 text-white rounded-2xl font-semibold">Проверить фото</button>
+        <button onclick="autofix()" class="px-10 py-4 bg-emerald-600 text-white rounded-2xl font-semibold">Автофикс</button>
+      </div>
+
+      <div id="result" class="hidden mt-10"></div>
+    </div>
+  </div>
+
+  <script>
+    let base64 = "";
+    document.getElementById('dropzone').addEventListener('click', () => document.getElementById('file').click());
+    document.getElementById('file').addEventListener('change', e => {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = ev => {
+        base64 = ev.target.result;
+        document.getElementById('dropzone').innerHTML = `<img src="${base64}" class="max-h-96 mx-auto rounded-2xl">`;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    async function send(endpoint) {
+      if (!base64) return alert("Сначала загрузите фото");
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({image: base64, mode: "balanced"})
+      });
+      const data = await res.json();
+      document.getElementById('result').innerHTML = `<pre class="bg-gray-900 text-white p-6 rounded-2xl overflow-auto">${JSON.stringify(data, null, 2)}</pre>`;
+      document.getElementById('result').classList.remove('hidden');
+    }
+
+    function validate() { send('/validate'); }
+    function autofix() { send('/auto-fix'); }
+  </script>
+</body>
+</html>`
+
 func main() {
-	// ==================== CONFIG ====================
 	cvServiceURL = os.Getenv("CV_SERVICE_URL")
 	if cvServiceURL == "" {
 		cvServiceURL = "http://localhost:8000"
 	}
-
-	// Убираем возможный IPv6 localhost
 	if strings.HasPrefix(cvServiceURL, "http://localhost") {
 		cvServiceURL = strings.Replace(cvServiceURL, "localhost", "127.0.0.1", 1)
 	}
@@ -48,98 +90,53 @@ func main() {
 		port = "8080"
 	}
 
-	// ==================== GIN SETUP ====================
-	gin.SetMode(gin.ReleaseMode) // для продакшена
 	r := gin.Default()
 
-	// Middleware
-	r.Use(gin.Recovery())
-
-	// Health check
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "service": "dv-photo-checker"})
-	})
-
-	// UI страница
 	r.GET("/ui", func(c *gin.Context) {
-		c.File("./static/index.html") // если есть папка static
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(uiHTML))
 	})
 
-	// Главный endpoint
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/ui")
+	})
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	r.POST("/validate", validateHandler)
 	r.POST("/auto-fix", autoFixHandler)
-	r.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "DV Photo Checker API is running"})
-	})
 
-	fmt.Printf("Backend running on :%s\n", port)
-	fmt.Printf("CV Service URL: %s\n", cvServiceURL)
+	fmt.Printf("✅ Backend running on :%s\n", port)
+	fmt.Printf("🌐 UI: /ui\n")
+	fmt.Printf("🔗 CV Service: %s\n", cvServiceURL)
 
 	r.Run(":" + port)
 }
 
-// ==================== HANDLERS ====================
-
 func validateHandler(c *gin.Context) {
-	var req ValidateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-		return
-	}
-
-	if req.Image == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Image is required"})
-		return
-	}
-
-	// Пересылаем запрос в Python CV Service
-	resp, err := forwardToCVService("/validate", req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"valid":  false,
-			"score":  0,
-			"status": "ERROR",
-			"issues": []string{"CV service unavailable: " + err.Error()},
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
+	forward(c, "/validate")
 }
 
 func autoFixHandler(c *gin.Context) {
-	var req ValidateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-		return
-	}
-
-	resp, err := forwardToCVService("/auto-fix", req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
+	forward(c, "/auto-fix")
 }
 
-// ==================== HELPER ====================
+func forward(c *gin.Context, endpoint string) {
+	var req map[string]interface{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 
-func forwardToCVService(endpoint string, payload interface{}) (interface{}, error) {
-	jsonData, _ := json.Marshal(payload)
-
-	client := &http.Client{Timeout: 25 * time.Second}
-
-	resp, err := client.Post(cvServiceURL+endpoint, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := http.Post(cvServiceURL+endpoint, "application/json", bytes.NewReader([]byte(c.Request.Body.(io.Reader).Read)))
 	if err != nil {
-		return nil, err
+		c.JSON(500, gin.H{"error": "CV service unavailable"})
+		return
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-
 	var result interface{}
-	json.Unmarshal(body, &result)
-
-	return result, nil
+	json.NewDecoder(resp.Body).Decode(&result)
+	c.JSON(resp.StatusCode, result)
 }
