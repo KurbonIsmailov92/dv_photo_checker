@@ -39,8 +39,23 @@ def _normalize_mode(mode: str | None) -> str:
     return mode if mode in VALID_MODES else DEFAULT_MODE
 
 
+def _safe_score(value: Any, default: float = 0.0) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return default
+    if score != score or score in (float("inf"), float("-inf")):
+        return default
+    return score
+
+
 def _decorate_validation_result(result: dict[str, Any]) -> dict[str, Any]:
-    score = float(result.get("score", 0.0))
+    score = _safe_score(result.get("score"), 0.0)
+    result["score"] = score
+    result.setdefault("valid", False)
+    result.setdefault("status", "PASS" if result["valid"] else "FAIL")
+    result.setdefault("issues", [])
+    result.setdefault("warnings", [])
     result.setdefault("pass_probability", round(score / 100.0, 3))
     return result
 

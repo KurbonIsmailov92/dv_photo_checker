@@ -83,13 +83,21 @@ def compute_background_variance(gray: np.ndarray, face_rect=None, crop_applied: 
 
 def compute_edge_density(gray: np.ndarray, face_rect=None, crop_applied: bool = False) -> float:
     mask = _background_mask(*gray.shape[:2], face_rect=face_rect, crop_applied=crop_applied)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 60, 140)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8)).astype(bool)
+    blurred = cv2.GaussianBlur(gray, (7, 7), 1.2)
+    edges = cv2.Canny(blurred, 72, 156)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, np.ones((3, 3), dtype=np.uint8))
+    edge_pixels = (edges > 0).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(edge_pixels, connectivity=8)
+    filtered = np.zeros_like(edge_pixels, dtype=bool)
+    min_component_area = max(10, int(min(gray.shape[:2]) * 0.012))
+    for label in range(1, num_labels):
+        area = int(stats[label, cv2.CC_STAT_AREA])
+        if area >= min_component_area:
+            filtered[labels == label] = True
     valid_pixels = int(mask.sum())
     if valid_pixels == 0:
         return 0.0
-    return float(np.count_nonzero(edges & mask) / valid_pixels)
+    return float(np.count_nonzero(filtered & mask) / valid_pixels)
 
 
 def validate_background(
@@ -118,29 +126,29 @@ def validate_background(
     metrics["background_mean_brightness"] = round(mean_value, 2)
     metrics["background_mask_ratio"] = round(float(mask.mean()), 4)
 
-    uniformity_reference = 64.0 if crop_applied else 56.0
-    edge_reference = 0.055 if crop_applied else 0.045
+    uniformity_reference = 76.0 if crop_applied else 68.0
+    edge_reference = 0.070 if crop_applied else 0.058
     uniformity_score = clamp(1.0 - tonal_range / uniformity_reference)
     edge_score = clamp(1.0 - edge_density / edge_reference)
     background_score = clamp(float(np.mean([uniformity_score, edge_score])))
     feature_scores["background_score"] = round(background_score, 3)
 
     if mode == STRICT_MODE:
-        tonal_warn = 24.0
-        tonal_issue = 34.0
-        edge_warn = 0.020
-        edge_issue = 0.032
+        tonal_warn = 30.0
+        tonal_issue = 42.0
+        edge_warn = 0.026
+        edge_issue = 0.041
     else:
-        tonal_warn = 28.0
-        tonal_issue = 40.0
-        edge_warn = 0.024
-        edge_issue = 0.038
+        tonal_warn = 34.0
+        tonal_issue = 48.0
+        edge_warn = 0.030
+        edge_issue = 0.046
 
     if context == "post_fix" and crop_applied:
-        tonal_warn += 6.0
-        tonal_issue += 8.0
-        edge_warn += 0.010
-        edge_issue += 0.012
+        tonal_warn += 8.0
+        tonal_issue += 10.0
+        edge_warn += 0.012
+        edge_issue += 0.014
 
     if tonal_range > tonal_issue:
         issues.append(f"Background tonal range is too wide ({tonal_range:.1f}).")

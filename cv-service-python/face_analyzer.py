@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Face landmark indices in MediaPipe mesh
 LEFT_EYE_LANDMARKS = [33, 133, 160, 159, 158, 157]
 RIGHT_EYE_LANDMARKS = [263, 362, 387, 386, 385, 384]
+LEFT_BROW_LANDMARKS = [70, 63, 105, 66, 107]
+RIGHT_BROW_LANDMARKS = [336, 296, 334, 293, 300]
+FOREHEAD_LANDMARKS = [10, 67, 109, 338, 297]
 TOP_HEAD_LANDMARK = 10
 CHIN_LANDMARK = 152
 
@@ -249,34 +252,94 @@ def compute_eye_center(landmarks: list[tuple[float, float]], indices: list[int])
     return float(center[0]), float(center[1])
 
 
-def calculate_face_geometry(landmarks: list[tuple[float, float]], image_height: int) -> tuple[float | None, float | None]:
-    """Calculate head percent and eye level from landmarks."""
+def _mean_point(landmarks: list[tuple[float, float]], indices: list[int]) -> tuple[float, float]:
+    points = np.array([landmarks[i] for i in indices], dtype=np.float32)
+    center = np.mean(points, axis=0)
+    return float(center[0]), float(center[1])
+
+
+def estimate_crown_y_from_landmarks(
+    landmarks: list[tuple[float, float]],
+    image_height: int,
+    face_rect: tuple[int, int, int, int] | None = None,
+) -> float | None:
+    """
+    Estimate the actual crown instead of using landmark 10 directly.
+
+    MediaPipe landmark 10 typically sits around the upper forehead, not the hairline/crown.
+    We extrapolate upward using the brow-to-forehead span, then clamp by a face-height-based
+    fallback band so the estimate remains stable across slight tilt and hairstyle variation.
+    """
+    required = LEFT_BROW_LANDMARKS + RIGHT_BROW_LANDMARKS + FOREHEAD_LANDMARKS + [CHIN_LANDMARK]
+    if not landmarks or len(landmarks) <= max(required):
+        return None
+
+    forehead_y = min(float(landmarks[i][1]) for i in FOREHEAD_LANDMARKS)
+    left_brow = _mean_point(landmarks, LEFT_BROW_LANDMARKS)
+    right_brow = _mean_point(landmarks, RIGHT_BROW_LANDMARKS)
+    brow_center_y = (left_brow[1] + right_brow[1]) / 2.0
+    chin_y = float(landmarks[CHIN_LANDMARK][1])
+
+    if face_rect is None:
+        xs = [x for x, _ in landmarks]
+        ys = [y for _, y in landmarks]
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        face_rect = (
+            int(np.floor(x_min)),
+            int(np.floor(y_min)),
+            int(max(1.0, x_max - x_min)),
+            int(max(1.0, y_max - y_min)),
+        )
+
+    _, _, _, fh = face_rect
+    brow_to_forehead = max(6.0, brow_center_y - forehead_y)
+    face_span = max(1.0, chin_y - forehead_y)
+    min_extension = max(0.22 * fh, 0.12 * face_span)
+    max_extension = max(0.36 * fh, min_extension + 1.0)
+    extension = np.clip(brow_to_forehead * 1.45, min_extension, max_extension)
+    crown_y = max(0.0, forehead_y - float(extension))
+    return min(crown_y, forehead_y - 2.0)
+
+
+def estimate_head_geometry_from_landmarks(
+    landmarks: list[tuple[float, float]],
+    image_height: int,
+    face_rect: tuple[int, int, int, int] | None = None,
+) -> tuple[float | None, float | None, float | None]:
+    """Calculate head percent and eye level using an estimated crown position."""
     if not landmarks:
-        return None, None
+        return None, None, None
     if len(landmarks) <= max(CHIN_LANDMARK, TOP_HEAD_LANDMARK):
-        return None, None
-    
-    top_y = landmarks[TOP_HEAD_LANDMARK][1]
-    chin_y = landmarks[CHIN_LANDMARK][1]
-    head_percent = ((chin_y - top_y) / float(image_height)) * 100.0
-    
+        return None, None, None
+
+    crown_y = estimate_crown_y_from_landmarks(landmarks, image_height, face_rect=face_rect)
+    if crown_y is None:
+        crown_y = float(landmarks[TOP_HEAD_LANDMARK][1])
+
+    chin_y = float(landmarks[CHIN_LANDMARK][1])
+    head_percent = ((chin_y - crown_y) / float(image_height)) * 100.0
+
     left_eye = compute_eye_center(landmarks, LEFT_EYE_LANDMARKS)
     right_eye = compute_eye_center(landmarks, RIGHT_EYE_LANDMARKS)
     eye_center_y = (left_eye[1] + right_eye[1]) / 2.0
     eye_level = ((float(image_height) - eye_center_y) / float(image_height)) * 100.0
-    
-    return float(head_percent), float(eye_level)
+
+    return float(head_percent), float(eye_level), float(crown_y)
 
 
-def approximate_geometry_from_face_rect(face_rect: tuple[int, int, int, int], image_height: int) -> tuple[float, float, float]:
+def approximate_geometry_from_face_rect(
+    face_rect: tuple[int, int, int, int],
+    image_height: int,
+) -> tuple[float, float, float, float]:
     """Estimate head percent and eye level from face bounding box."""
     x, y, fw, fh = face_rect
-    top_y = max(0.0, y - 0.18 * fh)
+    top_y = max(0.0, y - 0.30 * fh)
     chin_y = min(float(image_height - 1), y + 1.02 * fh)
     eye_center_y = y + 0.38 * fh
     head_percent = ((chin_y - top_y) / float(image_height)) * 100.0
     eye_level = ((float(image_height) - eye_center_y) / float(image_height)) * 100.0
-    return float(head_percent), float(eye_level), float(eye_center_y)
+    return float(head_percent), float(eye_level), float(eye_center_y), float(top_y)
 
 
 def face_geometry_score(head_percent: float, eye_level: float) -> float:
@@ -329,7 +392,7 @@ def validate_face_geometry(
     if landmarks is not None:
         metrics["landmarks_found"] = True
         face_rect = face_rect_from_landmarks(landmarks, w, h)
-        head_percent, eye_level = calculate_face_geometry(landmarks, h)
+        head_percent, eye_level, crown_y = estimate_head_geometry_from_landmarks(landmarks, h, face_rect=face_rect)
         logger.debug("Face geometry from MediaPipe landmarks")
     else:
         # Fallback to face box detection
@@ -344,7 +407,7 @@ def validate_face_geometry(
             return {"issues": issues, "warnings": warnings, "metrics": metrics, "feature_scores": feature_scores}
         
         # Use face box for geometry estimation
-        head_percent, eye_level, eye_center_y = approximate_geometry_from_face_rect(face_rect, h)
+        head_percent, eye_level, eye_center_y, crown_y = approximate_geometry_from_face_rect(face_rect, h)
         metrics["eye_center_y"] = round(eye_center_y, 2)
         logger.debug("Face geometry estimated from face box (landmarks not found)")
 
@@ -354,7 +417,7 @@ def validate_face_geometry(
     
     # Add landmark coordinates for visualization
     if landmarks is not None and len(landmarks) > max(TOP_HEAD_LANDMARK, CHIN_LANDMARK):
-        metrics["face_top_y"] = round(float(landmarks[TOP_HEAD_LANDMARK][1]), 2)
+        metrics["face_top_y"] = round(float(crown_y), 2)
         metrics["face_chin_y"] = round(float(landmarks[CHIN_LANDMARK][1]), 2)
         # Nose tip is landmark 1
         metrics["face_nose_y"] = round(float(landmarks[1][1]), 2) if len(landmarks) > 1 else None
@@ -362,7 +425,7 @@ def validate_face_geometry(
         # Estimate from face rect if using fallback
         if face_rect is not None:
             x, y, fw, fh = face_rect
-            metrics["face_top_y"] = round(float(max(0.0, y - 0.18 * fh)), 2)
+            metrics["face_top_y"] = round(float(crown_y), 2)
             metrics["face_chin_y"] = round(float(min(float(h - 1), y + 1.02 * fh)), 2)
             metrics["face_nose_y"] = round(float(y + 0.38 * fh), 2)
 

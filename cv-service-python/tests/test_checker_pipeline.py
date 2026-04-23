@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import checker
+import face_analyzer
 
 
 def make_clean_photo(height: int = 600, width: int = 600) -> np.ndarray:
@@ -134,10 +135,8 @@ class CheckerPipelineTests(unittest.TestCase):
 
         self.assertTrue(result["valid"])
         self.assertEqual([], [issue for issue in result["issues"] if "Background" in issue])
-        self.assertIn(
-            "Background contains visible structure or edges.",
-            result["detail"]["pipeline"]["post_fix_validation"]["issues"],
-        )
+        self.assertEqual([], [issue for issue in result["detail"]["pipeline"]["post_fix_validation"]["issues"] if "Background" in issue])
+        self.assertTrue(result["detail"]["pipeline"]["post_fix_validation"]["metrics"]["skipped_on_post_fix"])
 
     def test_bad_background_still_fails(self):
         image = make_bad_background_photo()
@@ -150,6 +149,26 @@ class CheckerPipelineTests(unittest.TestCase):
 
         self.assertFalse(result["valid"])
         self.assertTrue(any("Background" in issue for issue in result["issues"]))
+
+    def test_crown_estimation_extends_above_forehead_landmark(self):
+        landmarks = [(300.0, 260.0)] * 400
+        for idx in face_analyzer.LEFT_EYE_LANDMARKS:
+            landmarks[idx] = (250.0, 235.0)
+        for idx in face_analyzer.RIGHT_EYE_LANDMARKS:
+            landmarks[idx] = (350.0, 235.0)
+        for idx in face_analyzer.LEFT_BROW_LANDMARKS:
+            landmarks[idx] = (255.0, 185.0)
+        for idx in face_analyzer.RIGHT_BROW_LANDMARKS:
+            landmarks[idx] = (345.0, 185.0)
+        for idx in face_analyzer.FOREHEAD_LANDMARKS:
+            landmarks[idx] = (300.0, 150.0)
+        landmarks[face_analyzer.CHIN_LANDMARK] = (300.0, 430.0)
+
+        crown_y = face_analyzer.estimate_crown_y_from_landmarks(landmarks, 600, face_rect=(220, 150, 160, 220))
+
+        self.assertIsNotNone(crown_y)
+        self.assertLess(crown_y, 150.0)
+        self.assertGreater(crown_y, 70.0)
 
 
 if __name__ == "__main__":

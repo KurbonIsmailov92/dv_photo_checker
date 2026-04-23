@@ -51,8 +51,8 @@ func main() {
 	r.POST("/validate", validateHandler)
 	r.POST("/auto-fix", autoFixHandler)
 
-	fmt.Printf("✅ Backend running on :%s\n", port)
-	fmt.Printf("🔗 CV Service: %s\n", cvServiceURL)
+	fmt.Printf("вњ… Backend running on :%s\n", port)
+	fmt.Printf("рџ”— CV Service: %s\n", cvServiceURL)
 
 	if err := r.Run(":" + port); err != nil {
 		panic(err)
@@ -149,7 +149,7 @@ const uiHTML = `<!DOCTYPE html>
 <body>
 
 <div class="card">
-	<h2>📸 DV Photo Validator Pro</h2>
+	<h2>рџ“ё DV Photo Validator Pro</h2>
 
 	<input type="file" id="file" accept="image/*"/>
 
@@ -209,6 +209,8 @@ function drawOverlay(metrics) {
 	const faceChinY = typeof metrics.face_chin_y === "number" ? metrics.face_chin_y : null;
 	const eyeLevel = typeof metrics.eye_level === "number" ? metrics.eye_level : null;
 	const faceRect = metrics.face_rect && typeof metrics.face_rect === "object" ? metrics.face_rect : null;
+	const faceBoxX = faceRect && typeof faceRect.x === "number" ? faceRect.x : null;
+	const faceBoxWidth = faceRect && typeof faceRect.w === "number" ? faceRect.w : null;
 	const noseX = faceRect && typeof faceRect.x === "number" && typeof faceRect.w === "number"
 		? faceRect.x + faceRect.w / 2
 		: null;
@@ -310,6 +312,21 @@ function drawOverlay(metrics) {
 		overlay.appendChild(line);
 		createText(x + 8, 54, label, color);
 	};
+	const createHeadBox = (x, yTop, width, yBottom, isValid) => {
+		if (x === null || width === null || yTop === null || yBottom === null) return;
+		const stroke = zoneColor(isValid);
+		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		rect.setAttribute("x", x);
+		rect.setAttribute("y", Math.min(yTop, yBottom));
+		rect.setAttribute("width", width);
+		rect.setAttribute("height", Math.abs(yBottom - yTop));
+		rect.setAttribute("fill", isValid === false ? "#ef444420" : "#38bdf820");
+		rect.setAttribute("stroke", stroke);
+		rect.setAttribute("stroke-width", "2");
+		rect.setAttribute("stroke-dasharray", "8 6");
+		overlay.appendChild(rect);
+		createText(x + width + 8, Math.max(20, Math.min(yTop, yBottom) + 22), "Detected Head", stroke);
+	};
 	const createHeadReference = () => {
 		const x = 540;
 		const width = 34;
@@ -357,6 +374,7 @@ function drawOverlay(metrics) {
 		createCorridor(allowedTopMin, allowedTopMax, headLabel, headValid);
 		createLine(faceTopY, "Top of Head", headValid ? "#38bdf8" : "#ef4444");
 		createLine(faceChinY, "Chin", headValid ? "#f59e0b" : "#ef4444");
+		createHeadBox(faceBoxX, faceTopY, faceBoxWidth, faceChinY, headValid);
 		createText(viewSize - 14, Math.max(20, faceChinY - 10), "Actual: " + headHeightPct.toFixed(1) + "%", zoneColor(headValid), "end");
 	} else if (faceChinY !== null) {
 		createCorridor(
@@ -381,7 +399,7 @@ function drawOverlay(metrics) {
 
 async function upload() {
 	let file = document.getElementById("file").files[0];
-	if (!file) return alert("Выбери фото");
+	if (!file) return alert("Р’С‹Р±РµСЂРё С„РѕС‚Рѕ");
 
 	lastFile = file;
 	showPreview(file);
@@ -401,7 +419,7 @@ async function upload() {
 }
 
 async function autoFix() {
-	if (!lastFile) return alert("Сначала загрузи фото");
+	if (!lastFile) return alert("РЎРЅР°С‡Р°Р»Р° Р·Р°РіСЂСѓР·Рё С„РѕС‚Рѕ");
 
 	let form = new FormData();
 	form.append("image", lastFile);
@@ -421,17 +439,20 @@ async function autoFix() {
 	drawOverlay({});
 
 	document.getElementById("result").innerHTML =
-		"🛠 Фото автоматически исправлено";
+		"рџ›  Р¤РѕС‚Рѕ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РёСЃРїСЂР°РІР»РµРЅРѕ";
 	document.getElementById("result").className = "result pass";
 }
 
 function renderResult(data) {
 	let box = document.getElementById("result");
 	let ok = data.valid;
+	let score = Number(data && data.score);
+	if (!Number.isFinite(score)) score = 0;
+	let status = data && data.status ? data.status : (ok ? "PASS" : "FAIL");
 	box.className = "result " + (ok ? "pass" : "fail");
 
-	let text = ok ? "✅ PASS\n\n" : "❌ FAIL\n\n";
-	text += "Score: " + data.score + "\n\n";
+	let text = ok ? "PASS: " + status + "\n\n" : "FAIL: " + status + "\n\n";
+	text += "Score: " + score.toFixed(1) + "\n\n";
 
 	if (data.issues && data.issues.length) {
 		text += "Issues:\n";
@@ -443,7 +464,7 @@ function renderResult(data) {
 		data.warnings.forEach(i => text += "- " + i + "\n");
 	}
 
-	text += "\n💡 How to fix:\n";
+	text += "\nрџ’Ў How to fix:\n";
 	if (!ok) {
 		text += "- Lower your head position\n";
 		text += "- Use natural daylight\n";
@@ -567,7 +588,12 @@ func writeUpstreamResponse(c *gin.Context, resp *http.Response) {
 func forward(c *gin.Context, endpoint string) {
 	req, statusCode, err := buildUpstreamRequest(c, endpoint)
 	if err != nil {
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		c.JSON(statusCode, gin.H{
+			"valid":  false,
+			"score":  0,
+			"status": "ERROR",
+			"issues": []string{err.Error()},
+		})
 		return
 	}
 

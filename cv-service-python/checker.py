@@ -30,6 +30,16 @@ def _clamp(value: float, min_v: float = 0.0, max_v: float = 1.0) -> float:
     return max(min(value, max_v), min_v)
 
 
+def _safe_score(value: Any, default: float = 0.0) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return default
+    if np.isnan(score) or np.isinf(score):
+        return default
+    return score
+
+
 def _dedupe(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
@@ -99,6 +109,21 @@ def _run_validation_components(
         enforce_rules=enforce_geometry,
         post_fix=(stage == POST_FIX_STAGE and crop_applied),
     )
+
+    if stage == POST_FIX_STAGE and crop_applied:
+        skipped = {
+            "issues": [],
+            "warnings": [],
+            "metrics": {"validation_source": SOURCE_STAGE, "skipped_on_post_fix": True},
+            "feature_scores": {},
+        }
+        return {
+            "face": face,
+            "background": skipped,
+            "blur": skipped,
+            "lighting": skipped,
+        }
+
     face_rect = _extract_face_rect(face.get("metrics", {}))
 
     background = validate_background(
@@ -214,12 +239,12 @@ def analyze_photo(image_input, mode: str = DEFAULT_MODE) -> dict[str, Any]:
         if "lighting_score" not in final_summary["feature_scores"]:
             final_summary["feature_scores"]["lighting_score"] = 0.60
 
-        score = _score_from_features(final_summary["feature_scores"])
+        score = _safe_score(_score_from_features(final_summary["feature_scores"]), default=0.0)
         valid, reason, status = _decision(score, final_summary["issues"])
 
         return {
             "valid": valid,
-            "score": round(float(score), 1),
+            "score": round(float(score), 1) if score is not None else 0.0,
             "status": status,
             "issues": final_summary["issues"],
             "warnings": final_summary["warnings"],

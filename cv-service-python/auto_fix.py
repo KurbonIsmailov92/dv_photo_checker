@@ -7,7 +7,7 @@ import logging
 import cv2
 import numpy as np
 from typing import Tuple
-from face_analyzer import detect_face_landmarks, detect_face_rect
+from face_analyzer import detect_face_landmarks, detect_face_rect, estimate_crown_y_from_landmarks
 from config import CROP_TARGET_SIZE, CROP_MARGIN_FACTOR
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,17 @@ def calculate_crop_region(image: np.ndarray, landmarks) -> Tuple[int, int, int]:
         return x0, y0, side
 
     # Get face geometry from landmarks
-    top_y = landmarks[TOP_HEAD_LANDMARK][1]
+    face_xs = [x for x, _ in landmarks]
+    face_ys = [y for _, y in landmarks]
+    face_rect = (
+        int(np.floor(min(face_xs))),
+        int(np.floor(min(face_ys))),
+        int(max(1.0, max(face_xs) - min(face_xs))),
+        int(max(1.0, max(face_ys) - min(face_ys))),
+    )
+    top_y = estimate_crown_y_from_landmarks(landmarks, h, face_rect=face_rect)
+    if top_y is None:
+        top_y = landmarks[TOP_HEAD_LANDMARK][1]
     chin_y = landmarks[CHIN_LANDMARK][1]
     head_height = max(chin_y - top_y, 1.0)
 
@@ -128,7 +138,9 @@ def auto_crop_to_dv_standard(image: np.ndarray) -> Tuple[np.ndarray, bool, dict]
         x, y, fw, fh = face_rect
         cx = x + fw / 2.0
         cy = y + fh * 0.38  # approximate eye center
-        head_height = max(1.0, fh * 1.2)
+        crown_y = max(0.0, y - 0.30 * fh)
+        chin_y = min(float(h - 1), y + 1.02 * fh)
+        head_height = max(1.0, chin_y - crown_y)
         crop_size = int(head_height / TARGET_HEAD_RATIO * (1.0 + CROP_MARGIN_FACTOR))
         crop_size = min(crop_size, min(h, w))
         x0 = int(cx - crop_size / 2.0)
