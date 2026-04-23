@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import checker
+import background_analysis
 import face_analyzer
 
 
@@ -35,6 +36,22 @@ def make_clean_photo(height: int = 600, width: int = 600) -> np.ndarray:
 def make_bad_background_photo(height: int = 600, width: int = 600) -> np.ndarray:
     rng = np.random.default_rng(42)
     image = rng.integers(120, 255, size=(height, width, 3), dtype=np.uint8)
+    cv2.ellipse(image, (width // 2, int(height * 0.28)), (55, 72), 0, 0, 360, (175, 175, 175), -1)
+    cv2.rectangle(
+        image,
+        (width // 2 - 95, int(height * 0.40)),
+        (width // 2 + 95, int(height * 0.88)),
+        (188, 188, 188),
+        -1,
+    )
+    return image
+
+
+def make_bright_gradient_background_photo(height: int = 600, width: int = 600) -> np.ndarray:
+    gradient = np.linspace(150, 255, height, dtype=np.uint8).reshape(height, 1, 1)
+    image = np.repeat(gradient, width, axis=1)
+    image = np.repeat(image, 3, axis=2)
+
     cv2.ellipse(image, (width // 2, int(height * 0.28)), (55, 72), 0, 0, 360, (175, 175, 175), -1)
     cv2.rectangle(
         image,
@@ -149,6 +166,15 @@ class CheckerPipelineTests(unittest.TestCase):
 
         self.assertFalse(result["valid"])
         self.assertTrue(any("Background" in issue for issue in result["issues"]))
+
+    def test_bright_clean_background_is_not_failed_by_tonal_range(self):
+        image = make_bright_gradient_background_photo()
+        face_rect = (240, 84, 120, 168)
+
+        result = background_analysis.validate_background(image, face_rect=face_rect, mode="balanced")
+
+        self.assertEqual([], result["issues"])
+        self.assertTrue(result["metrics"]["background_bright_adjustment_applied"])
 
     def test_crown_estimation_extends_above_forehead_landmark(self):
         landmarks = [(300.0, 260.0)] * 400

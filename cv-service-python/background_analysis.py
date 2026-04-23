@@ -5,6 +5,8 @@ import numpy as np
 
 from config import BALANCED_MODE, STRICT_MODE
 
+BRIGHT_BACKGROUND_THRESHOLD = 200.0
+
 
 def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(min(value, maximum), minimum)
@@ -118,42 +120,55 @@ def validate_background(
     mask = _background_mask(h, w, face_rect=face_rect, crop_applied=crop_applied)
     variance, tonal_range, mad, mean_value = _background_stats(gray, mask)
     edge_density = compute_edge_density(gray, face_rect=face_rect, crop_applied=crop_applied)
+    bright_background = mean_value > BRIGHT_BACKGROUND_THRESHOLD
+    effective_tonal_range = tonal_range * 0.5 if bright_background else tonal_range
 
     metrics["background_variance"] = round(variance, 2)
     metrics["background_edge_density"] = round(edge_density, 4)
     metrics["background_tonal_range"] = round(tonal_range, 2)
+    metrics["background_effective_tonal_range"] = round(effective_tonal_range, 2)
     metrics["background_mad"] = round(mad, 2)
     metrics["background_mean_brightness"] = round(mean_value, 2)
     metrics["background_mask_ratio"] = round(float(mask.mean()), 4)
+    metrics["background_bright_adjustment_applied"] = bright_background
 
-    uniformity_reference = 76.0 if crop_applied else 68.0
+    uniformity_reference = 104.0 if crop_applied else 96.0
     edge_reference = 0.070 if crop_applied else 0.058
-    uniformity_score = clamp(1.0 - tonal_range / uniformity_reference)
+    uniformity_score = clamp(1.0 - effective_tonal_range / uniformity_reference)
     edge_score = clamp(1.0 - edge_density / edge_reference)
-    background_score = clamp(float(np.mean([uniformity_score, edge_score])))
+    background_score = clamp(float(uniformity_score * 0.35 + edge_score * 0.65))
     feature_scores["background_score"] = round(background_score, 3)
 
     if mode == STRICT_MODE:
-        tonal_warn = 30.0
-        tonal_issue = 42.0
+        tonal_warn = 56.0
+        tonal_issue = 84.0
         edge_warn = 0.026
         edge_issue = 0.041
     else:
-        tonal_warn = 34.0
-        tonal_issue = 48.0
+        tonal_warn = 60.0
+        tonal_issue = 90.0
         edge_warn = 0.030
         edge_issue = 0.046
 
     if context == "post_fix" and crop_applied:
-        tonal_warn += 8.0
-        tonal_issue += 10.0
+        tonal_warn += 10.0
+        tonal_issue += 14.0
         edge_warn += 0.012
         edge_issue += 0.014
 
-    if tonal_range > tonal_issue:
-        issues.append(f"Background tonal range is too wide ({tonal_range:.1f}).")
-    elif tonal_range > tonal_warn:
-        warnings.append(f"Background tonal range is slightly elevated ({tonal_range:.1f}).")
+    clean_white_background = bright_background and edge_density <= edge_warn and mad <= 18.0
+    mottled_background = (not bright_background) and effective_tonal_range > tonal_warn and mad >= 18.0
+
+    if effective_tonal_range > tonal_issue:
+        if clean_white_background:
+            warnings.append(f"Background tonal range is elevated but acceptable for a bright clean background ({tonal_range:.1f}).")
+        else:
+            issues.append(f"Background tonal range is too wide ({tonal_range:.1f}).")
+    elif effective_tonal_range > tonal_warn:
+        if mottled_background:
+            issues.append(f"Background shows visible tonal noise or mottling ({tonal_range:.1f}).")
+        else:
+            warnings.append(f"Background tonal range is slightly elevated ({tonal_range:.1f}).")
 
     if edge_density > edge_issue:
         issues.append("Background contains visible structure or edges.")
